@@ -1,0 +1,36 @@
+docker/
+redis/
+
+*.pyc
+.env
+__pycache__/
+
+settings.json
+
+
+# tmp Files
+alembic_tmp.py
+old_db.py
+alembic_bk/
+
+calendar/
+member/
+officer/
+practice/
+products/
+
+
+# ignoring frontend for now
+#Frontend
+frontend/
+node_modules/
+
+.DS_Store
+.env
+
+/.react-router/
+/build/
+
+
+# docker
+compose.yaml
