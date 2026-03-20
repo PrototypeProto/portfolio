@@ -9,14 +9,21 @@ export default function LoginCard() {
   const [password, setPassword] = useState("");
 
   const [err, setErr] = useState<boolean>(false);
+  const [errMessage, setErrMessage] = useState<string | null>(null)
 
   const { handleLogin } = useAuth();
 
   const handleLoginSubmit = async () => {
-    if (await handleLogin({ username, password })) {
+    const res = await handleLogin({ username, password })
+    if (res.ok) {
       navigate("/profile");
       setErr(false);
     } 
+    // else if (res.statusCode == 401) {
+    //   navigate('/account-pending-approval')
+    //   setErr(false)
+    // }
+    setErrMessage(res.error);
     setErr(true);
   };
 
@@ -39,7 +46,7 @@ export default function LoginCard() {
       />
 
       <button onClick={handleLoginSubmit}>Log in</button><br/>
-      {err && (<span>Failed to login, try again</span>)}
+      {err && (<span>Failed to login, try again{" : " + errMessage}</span>)}
 
     </div>
   );

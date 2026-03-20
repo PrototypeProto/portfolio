@@ -71,7 +71,7 @@ async def login_user(login_data: LoginUserModel, session: SessionDependency):
     if user is None:
         user1 = await auth_service.get_username_from_user_pending_table(login_data.username, session)
         if user1 is not None:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Account is currently pending approval, try again later...")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account is currently pending approval, try again later...")
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

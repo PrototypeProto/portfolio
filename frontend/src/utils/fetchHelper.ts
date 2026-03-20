@@ -23,7 +23,8 @@ export async function postJSON<T>(
   return {
     data: res.ok ? (data as T) : null,
     ok: res.ok,
-    error: res.ok ? null : (data.detail?.[0]?.msg ?? "request failed"),
+    statusCode: res.status,
+    error: res.ok ? null : (data.detail?.[0]?.msg ?? data.detail ?? "Failed to retrieve error message"),
   };
 }
 
@@ -38,7 +39,7 @@ export async function getJSON<T>(url: string, token?: string): Promise<T> {
 
   const data = await res.json().catch(() => ({}));
 
-  if (!res.ok) throw new Error(data.detail?.[0]?.msg ?? "request failed");
+  if (!res.ok) throw new Error(data.detail?.[0]?.msg ?? data.detail ?? "Failed to retrieve error message");
 
   return data as T;
 }

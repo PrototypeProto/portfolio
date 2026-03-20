@@ -1,11 +1,12 @@
-import type { APIResponse, LoginResponse, SignupResponse, UserLogin, UserSignup } from "../types/authType";
+import type { APIResponse, APISimplifiedResponse, LoginResponse, SignupResponse, UserLogin, UserSignup } from "../types/authType";
 import { login, signup } from "../services/auth/authService";
 import { useAuthContext } from "../context/AuthContext";
+import { status500 } from "../types/errorType";
 
 export function useAuth() {
   const { setAuthData, setTokens } = useAuthContext();
 
-  const handleLogin = async ({ username, password }: UserLogin): Promise<boolean> => {
+  const handleLogin = async ({ username, password }: UserLogin): Promise<APISimplifiedResponse> => {
     try {
       const response: APIResponse<LoginResponse> = await login({ username, password });
       // on successful login, response has a user field
@@ -14,26 +15,22 @@ export function useAuth() {
         setAuthData(response.data.user);
         localStorage.setItem("user", JSON.stringify(response.data.user));
         localStorage.removeItem("temp_user");
-        return true;
       }
-
-      console.log(response);
-      return false;
+      return {ok: response.ok, statusCode: response.statusCode, error: response.error};
     } catch {
-      return false;
+      return {ok: false, statusCode: 404, error: status500};
     }
   };
 
-  const handleSignup = async (userData : UserSignup): Promise<boolean> => {
+  const handleSignup = async (userData : UserSignup): Promise<APISimplifiedResponse> => {
     try {
       const response: APIResponse<SignupResponse> = await signup(userData);
       if (response.ok && response.data) {
         localStorage.setItem("temp_user", JSON.stringify(response.data));
-        return true;
       }
-      return false;
+      return {ok: response.ok, statusCode: response.statusCode, error: response.error};
     } catch {
-      return false;
+      return {ok: false, statusCode: 404, error: status500};
     }
   }
 

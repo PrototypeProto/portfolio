@@ -1,0 +1,1 @@
+export const status500 = "An unexpected error has occurred."

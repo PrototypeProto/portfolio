@@ -1,6 +1,13 @@
 export interface APIResponse<T> {
   data: T | null
   ok: boolean
+  statusCode: number
+  error: string | null
+}
+
+export interface APISimplifiedResponse {
+  ok: boolean
+  statusCode: number
   error: string | null
 }
 
