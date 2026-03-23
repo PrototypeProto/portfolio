@@ -3,7 +3,7 @@ from fastapi.security import HTTPBearer
 from fastapi.security.http import HTTPAuthorizationCredentials
 from fastapi.exceptions import HTTPException
 from .utils import decode_token
-from src.db.redis import token_in_blocklist
+from src.db.tokens_redis import token_in_blocklist
 from src.db.main import get_session
 from sqlmodel.ext.asyncio.session import AsyncSession
 from .service import AuthService
