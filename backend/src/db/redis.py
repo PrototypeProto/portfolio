@@ -4,7 +4,7 @@ from src.config import Config
 JTI_EXPIRY = 3600
 
 
-redis_token_blocklist = redis.StrictRedis(
+redis_token_blocklist = redis.Redis(
     host=Config.REDIS_HOST,
     port=Config.REDIS_PORT,
     db=0

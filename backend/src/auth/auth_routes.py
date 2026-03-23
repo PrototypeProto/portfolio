@@ -45,6 +45,7 @@ async def create_user(
 ) -> UserDataModel:
     if user_data.email == "":
         user_data.email = None
+
     if user_data.nickname == "":
         user_data.nickname = None
     if user_data.request == "":
@@ -54,12 +55,13 @@ async def create_user(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User with username already exists",
         )
+    if user_data.email is not None:
+        if await auth_service.email_exists(user_data.email, session) != LoginResultEnum.DNE:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="User with email already exists",
+            )
 
-    if await auth_service.email_exists(user_data.email, session) != LoginResultEnum.DNE:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="User with email already exists",
-        )
 
     new_user = await auth_service.register_user(user_data, session)
     return new_user
