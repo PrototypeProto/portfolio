@@ -3,6 +3,12 @@ import { API } from "../../services/endpoints/api";
 import type { APIResponse } from "../../types/authType";
 import type { MediaListResponse } from "../../types/mediaType";
 
+export async function getMediaPageCt(): Promise<
+  APIResponse<number>
+> {
+  return getJSON<number>(API.media.pageCt);
+}
+
 export async function getMediaList(
   page: number,
 ): Promise<APIResponse<MediaListResponse>> {

@@ -11,7 +11,6 @@ from datetime import datetime, timedelta
 from src.auth.dependencies import (
     RefreshTokenBearer,
     access_token_bearer,
-    get_current_user_by_username,
 )
 from src.db.roles_redis import set_user_role, get_user_role
 from src.db.db_models import (
@@ -37,7 +36,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 )
 async def get_all_users(session: SessionDependency, token_details: dict = access_token_bearer):
     '''
-    NOTE: Subject for removal
+    NOTE: Subject for overhaul to just return user count
     Subject for removal unless wanting to list all users for some reason
     '''
     if not await admin_service.verify_admin(token_details, session):
@@ -45,8 +44,8 @@ async def get_all_users(session: SessionDependency, token_details: dict = access
     users = await admin_service.get_all_users(session)
     return users
 
-@admin_router.get("/unregistered/users", response_model=List[Tuple[UUID, str]])
-async def get_unregistered_users(session: SessionDependency, token_details: dict = access_token_bearer):
+@admin_router.get("/unapproved/users", response_model=List[Tuple[UUID, str]])
+async def get_unapproved_users(session: SessionDependency, token_details: dict = access_token_bearer):
     '''
     Gets a list of newly registered users who want access to the site [(userid, username),]
     '''
@@ -71,7 +70,7 @@ async def promote_user(
         )
 
     # promote user else error
-    res = await admin_service.raise_user_privilege(username, role, session)
+    res = await admin_service.update_user_privilege(username, role, session)
     if res is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN, detail="Failed to update perms"
@@ -95,9 +94,9 @@ async def authorize_pending_user(username: str, session: SessionDependency, toke
     new_user = None
     try:
         new_user = await admin_service.promote_pending_to_user(username, session)
-    except:
+    except Exception as e:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to delete user"
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to delete unverified user", 
         ) 
     if new_user is None:
         raise HTTPException(
