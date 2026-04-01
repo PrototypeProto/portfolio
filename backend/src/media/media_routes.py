@@ -21,7 +21,7 @@ from pydantic import Field
 
 REFRESH_TOKEN_EXPIRY_DAYS = 2
 
-media_router = APIRouter(prefix="/media", tags=["media"], dependencies=[access_token_bearer])
+router = APIRouter(prefix="/media", tags=["media"], dependencies=[access_token_bearer])
 
 auth_service = AuthService()
 media_service = MediaService()
@@ -42,7 +42,7 @@ MEDIA_TYPES = {
 ALLOWED_MIME_TYPES = set(MEDIA_TYPES.values())
 ALLOWED_EXTENSIONS = set(MEDIA_TYPES.keys())
 
-@media_router.get("/pages", response_model=int)
+@router.get("/pages", response_model=int)
 async def get_page_count(
     session: SessionDependency,
     token_details: dict = access_token_bearer):
@@ -53,7 +53,7 @@ async def get_page_count(
     
     return 2
 
-@media_router.get("/list")
+@router.get("/list")
 async def list_media_page(
     session: SessionDependency,
     page: int = Query(default=1, ge=1),
@@ -66,7 +66,7 @@ async def list_media_page(
     return await media_service.list_accessible_media(page-1, MEDIA_LIMIT)
 
 
-@media_router.get("/{filename}")
+@router.get("/{filename}")
 async def get_media(
     filename: str, session: SessionDependency, token_details: dict = access_token_bearer
 ):
@@ -95,7 +95,7 @@ async def get_media(
 # FOR ADMINS
 
 
-@media_router.post("/file", status_code=status.HTTP_201_CREATED)
+@router.post("/file", status_code=status.HTTP_201_CREATED)
 async def upload_file(
     session: SessionDependency,
     file: UploadFile = File(...),
@@ -117,7 +117,7 @@ async def upload_file(
 
     return {"filename": file.filename}
 
-@media_router.delete("/file/{filename}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete("/file/{filename}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_file(session: SessionDependency, filename: str, token_details: dict = access_token_bearer):
     if not await admin_service.verify_admin(token_details, session):
         raise HTTPException(

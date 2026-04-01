@@ -5,10 +5,7 @@ from sqlmodel import select, desc, update, insert, delete, func
 from datetime import date, datetime, timedelta
 from uuid import UUID
 from typing import Tuple
-from src.db.db_models import MemberRoleEnum, VerifyUserModel
 from src.db.read_models import *
-from src.db.roles_redis import set_user_role, get_user_role
-from src.db.users_redis import add_registered_user, get_user, remove_user
 from src.auth.service import AuthService
 
 auth_service = AuthService()
@@ -205,9 +202,10 @@ class ForumService:
  
     #  REPLIES
  
+    # TODO: FIX THIS
     async def get_replies(
         self, thread_id: UUID, page: int, page_size: int, session: AsyncSession
-    ) -> PaginatedReplies:
+    ) -> bool: #PaginatedReplies
         base_q = (
             select(Reply)
             .where(Reply.thread_id == thread_id)
@@ -219,14 +217,15 @@ class ForumService:
             .offset((page - 1) * page_size)
             .limit(page_size)
         )).all()
- 
-        return PaginatedReplies(
-            items=replies,
-            total=total,
-            page=page,
-            page_size=page_size,
-            pages=ceil(total / page_size),
-        )
+
+        return false
+        # return PaginatedReplies(
+        #     items=replies,
+        #     total=total,
+        #     page=page,
+        #     page_size=page_size,
+        #     pages=ceil(total / page_size),
+        # )
  
     async def get_reply_children(self, reply_id: UUID, session: AsyncSession) -> list[Reply]:
         result = await session.exec(

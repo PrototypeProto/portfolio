@@ -1,10 +1,10 @@
 from fastapi import FastAPI, Header
 from fastapi.middleware.cors import CORSMiddleware
-from src.auth.auth_routes import auth_router
-from src.root_routes import root_router
-from src.admin.admin_routes import admin_router
-from src.media.media_routes import media_router
-from src.forum.forum_routes import forum_router
+from src.root_routes import router as root_router
+from src.auth.auth_routes import router as auth_router
+from src.admin.admin_routes import router as admin_router
+from src.media.media_routes import router as media_router
+from src.forum.forum_routes import router as forum_router 
 from src.config import Config
 
 from contextlib import asynccontextmanager

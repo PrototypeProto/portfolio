@@ -1,6 +1,6 @@
 from sqlmodel import SQLModel, Field, Column
 from typing import Optional
-from db.db_models import MemberRoleEnum
+from src.db.db_models import MemberRoleEnum
 from datetime import date, datetime, time
 
 

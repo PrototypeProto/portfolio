@@ -1,7 +1,8 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import Session, select, func
-from typing import Optional
+from typing import Optional, Annotated
 from datetime import datetime
 from .service import ForumService
 from src.db.read_models import *
@@ -9,8 +10,9 @@ from src.admin.service import AdminService
 from src.db.models import User
 from src.auth.dependencies import access_token_bearer
 from src.auth.service import AuthService
+from src.db.main import get_session
 
-forum_router = APIRouter(prefix="/forum", tags=["forum"], dependencies=[access_token_bearer])
+router = APIRouter(prefix="/forum", tags=["forum"], dependencies=[access_token_bearer])
 service = ForumService()
 auth_service = AuthService()
 admin_service = AdminService()
@@ -19,7 +21,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 # TOPIC GROUPS
 
 @router.get("/groups", response_model=list[TopicGroupRead])
-def list_topic_groups(session: SessionDependency):
+async def list_topic_groups(session: SessionDependency):
     """Get all topic groups ordered by display_order. Used to render the forum index."""
     return await service.get_topic_groups(session)
 
@@ -27,7 +29,7 @@ def list_topic_groups(session: SessionDependency):
 # TOPICS
 
 @router.get("/topics", response_model=list[TopicRead])
-def list_topics(
+async def list_topics(
     session: SessionDependency,
     group_id: Optional[UUID] = Query(None),
 ):
@@ -39,7 +41,7 @@ def list_topics(
 
 
 @router.get("/topics/{topic_id}", response_model=TopicRead)
-def get_topic(topic_id: UUID, session: SessionDependency):
+async def get_topic(topic_id: UUID, session: SessionDependency):
     topic = await service.get_topic(topic_id, session)
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -48,7 +50,7 @@ def get_topic(topic_id: UUID, session: SessionDependency):
 
 # NOTE: ADMIN ONLY
 @router.post("/topics", response_model=TopicRead, status_code=status.HTTP_201_CREATED)
-def create_topic(
+async def create_topic(
     payload: TopicCreate,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -60,7 +62,7 @@ def create_topic(
 
 # NOTE: ADMIN ONLY
 @router.patch("/topics/{topic_id}", response_model=TopicRead)
-def update_topic(
+async def update_topic(
     topic_id: UUID,
     payload: TopicUpdate,
     session: SessionDependency,
@@ -72,7 +74,7 @@ def update_topic(
 
 
 @router.patch("/topics/{topic_id}/lock", response_model=TopicRead)
-def toggle_topic_lock(
+async def toggle_topic_lock(
     topic_id: UUID,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -86,7 +88,7 @@ def toggle_topic_lock(
 # THREADS
 
 @router.get("/topics/{topic_id}/threads", response_model=PaginatedThreads)
-def list_threads(
+async def list_threads(
     topic_id: UUID,
     session: SessionDependency,
     page: int = Query(1, ge=1),
@@ -106,7 +108,7 @@ def list_threads(
 
 # Missing is_deleted from ThreadRead
 @router.get("/threads/{thread_id}", response_model=ThreadRead)
-def get_thread(thread_id: UUID, session: SessionDependency):
+async def get_thread(thread_id: UUID, session: SessionDependency):
     thread = await service.get_thread(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
@@ -118,7 +120,7 @@ def get_thread(thread_id: UUID, session: SessionDependency):
     response_model=ThreadRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_thread(
+async def create_thread(
     topic_id: UUID,
     payload: ThreadCreate,
     session: SessionDependency,
@@ -137,7 +139,7 @@ def create_thread(
 
 
 @router.patch("/threads/{thread_id}", response_model=ThreadRead)
-def update_thread(
+async def update_thread(
     thread_id: UUID,
     payload: ThreadUpdate,
     session: SessionDependency,
@@ -167,7 +169,7 @@ def update_thread(
 
 
 @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_thread(
+async def delete_thread(
     thread_id: UUID,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -190,7 +192,7 @@ def delete_thread(
 
 # NOTE: service?
 @router.patch("/threads/{thread_id}/lock", response_model=ThreadRead)
-def toggle_thread_lock(
+async def toggle_thread_lock(
     thread_id: UUID,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -207,7 +209,7 @@ def toggle_thread_lock(
 
 # admin : service?
 @router.patch("/threads/{thread_id}/pin", response_model=ThreadRead)
-def toggle_thread_pin(
+async def toggle_thread_pin(
     thread_id: UUID,
     session: SessionDependency,
     pin_expires_at: Optional[datetime] = None,
@@ -227,7 +229,7 @@ def toggle_thread_pin(
 # THREAD VOTES
 
 @router.post("/threads/{thread_id}/vote", response_model=VoteResult)
-def vote_thread(
+async def vote_thread(
     thread_id: UUID,
     payload: VotePayload,           # { is_upvote: bool }
     session: SessionDependency,
@@ -250,7 +252,7 @@ def vote_thread(
 
 
 @router.get("/threads/{thread_id}/vote", response_model=Optional[VotePayload])
-def get_my_thread_vote(
+async def get_my_thread_vote(
     thread_id: UUID,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -265,8 +267,8 @@ def get_my_thread_vote(
 
 # REPLIES
 
-@router.get("/threads/{thread_id}/replies", response_model=ReplyListResponse)
-def list_replies(
+@router.get("/threads/{thread_id}/replies", response_model=bool) #ReplyListResponse
+async def list_replies(
     thread_id: UUID,
     session: SessionDependency,
     page: int = Query(1, ge=1),
@@ -287,7 +289,7 @@ def list_replies(
 
 
 @router.get("/replies/{reply_id}/children", response_model=list[ReplyRead])
-def get_reply_children(
+async def get_reply_children(
     reply_id: UUID,
     session: SessionDependency,
 ):
@@ -296,7 +298,7 @@ def get_reply_children(
 
 
 @router.get("/replies/{reply_id}", response_model=ReplyRead)
-def get_reply(reply_id: UUID, session: SessionDependency):
+async def get_reply(reply_id: UUID, session: SessionDependency):
     reply = await service.get_reply(reply_id, session)
     if not reply:
         raise HTTPException(status_code=404, detail="Reply not found")
@@ -308,7 +310,7 @@ def get_reply(reply_id: UUID, session: SessionDependency):
     response_model=ReplyRead,
     status_code=status.HTTP_201_CREATED,
 )
-def create_reply(
+async def create_reply(
     thread_id: UUID,
     payload: ReplyCreate,          # { body, parent_reply_id? }
     session: SessionDependency,
@@ -333,7 +335,7 @@ def create_reply(
 
 
 @router.patch("/replies/{reply_id}", response_model=ReplyRead)
-def update_reply(
+async def update_reply(
     reply_id: UUID,
     payload: ReplyUpdate,           # { body }
     session: SessionDependency,
@@ -354,7 +356,7 @@ def update_reply(
 
 
 @router.delete("/replies/{reply_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_reply(
+async def delete_reply(
     reply_id: UUID,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -383,7 +385,7 @@ def delete_reply(
 # REPLY VOTES
 
 @router.post("/replies/{reply_id}/vote", response_model=VoteResult)
-def vote_reply(
+async def vote_reply(
     reply_id: UUID,
     payload: VotePayload,
     session: SessionDependency,
@@ -402,7 +404,7 @@ def vote_reply(
 
 
 @router.get("/replies/{reply_id}/vote", response_model=Optional[bool])
-def get_my_reply_vote(
+async def get_my_reply_vote(
     reply_id: UUID,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -417,7 +419,7 @@ def get_my_reply_vote(
 # REPLY ATTACHMENTS
 
 @router.get("/replies/{reply_id}/attachments", response_model=list[ReplyAttachmentRead])
-def list_attachments(reply_id: UUID, session: SessionDependency):
+async def list_attachments(reply_id: UUID, session: SessionDependency):
     return await service.get_attachments(reply_id, session)
 
 
@@ -426,7 +428,7 @@ def list_attachments(reply_id: UUID, session: SessionDependency):
     response_model=ReplyAttachmentRead,
     status_code=status.HTTP_201_CREATED,
 )
-def add_attachment(
+async def add_attachment(
     reply_id: UUID,
     payload: ReplyAttachmentCreate,     # { attachment_type, url, label? }
     session: SessionDependency,
@@ -447,7 +449,7 @@ def add_attachment(
 
 
 @router.delete("/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_attachment(
+async def delete_attachment(
     attachment_id: UUID,
     session: SessionDependency,
     token_details: dict = access_token_bearer,
@@ -473,7 +475,7 @@ def delete_attachment(
 # SEARCH  (frontend: search bar)
 
 @router.get("/search", response_model=SearchResults)
-def search_forum(
+async def search_forum(
     session: SessionDependency,
     query: str = Query(..., min_length=2),
     topic_id: Optional[UUID] = None,
@@ -491,7 +493,7 @@ def search_forum(
 # USER ACTIVITY  (frontend: profile pages)
 
 @router.get("/users/{user_id}/threads", response_model=list[ThreadRead])
-def get_user_threads(
+async def get_user_threads(
     user_id: UUID,
     session: SessionDependency,
     page: int = Query(1, ge=1),
@@ -502,7 +504,7 @@ def get_user_threads(
 
 
 @router.get("/users/{user_id}/replies", response_model=list[ReplyRead])
-def get_user_replies(
+async def get_user_replies(
     user_id: UUID,
     session: SessionDependency,
     page: int = Query(1, ge=1),
