@@ -28,12 +28,12 @@ from src.db.models import User, PendingUser
 
 REFRESH_TOKEN_EXPIRY_DAYS = 2
 
-auth_router = APIRouter()
+router = APIRouter(prefix="/auth", tags=["authentication"])
 auth_service = AuthService()
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 
-@auth_router.post(
+@router.post(
     "/signup", response_model=UserDataModel, status_code=status.HTTP_201_CREATED
 )
 async def create_user(
@@ -68,7 +68,7 @@ async def create_user(
     return new_user
 
 
-@auth_router.post("/login", status_code=status.HTTP_200_OK)
+@router.post("/login", status_code=status.HTTP_200_OK)
 async def login_user(
     login_data: LoginUserModel, session: SessionDependency, response: Response
 ):
@@ -128,7 +128,7 @@ async def login_user(
     )
 
 
-@auth_router.get("/refresh_token")
+@router.get("/refresh_token")
 async def get_new_access_token(token_details: dict = Depends(RefreshTokenBearer())):
     expiry_timestamp = token_details["exp"]
 
@@ -142,12 +142,12 @@ async def get_new_access_token(token_details: dict = Depends(RefreshTokenBearer(
     )
 
 
-@auth_router.get("/me")
+@router.get("/me")
 async def get_current_user(user=Depends(get_current_user_by_username)):
     return user
 
 
-@auth_router.get("/logout")
+@router.get("/logout")
 async def revoke_token(token_details: dict = access_token_bearer):
     if token_details is None:
         raise HTTPException(

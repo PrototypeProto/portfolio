@@ -24,13 +24,13 @@ from src.db.models import User, PendingUser
 
 
 
-admin_router = APIRouter()
+router = APIRouter(prefix="/admin", tags=["admin"])
 admin_service = AdminService()
 auth_service = AuthService()
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 
-@admin_router.get(
+@router.get(
     "/all_users",
     response_model=List[UserDataModel],
 )
@@ -44,7 +44,7 @@ async def get_all_users(session: SessionDependency, token_details: dict = access
     users = await admin_service.get_all_users(session)
     return users
 
-@admin_router.get("/unapproved/users", response_model=List[Tuple[UUID, str]])
+@router.get("/unapproved/users", response_model=List[Tuple[UUID, str]])
 async def get_unapproved_users(session: SessionDependency, token_details: dict = access_token_bearer):
     '''
     Gets a list of newly registered users who want access to the site [(userid, username),]
@@ -53,7 +53,7 @@ async def get_unapproved_users(session: SessionDependency, token_details: dict =
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions")
     return await admin_service.get_pending_users(session)
 
-@admin_router.patch("/{username}/promotion/{role}")
+@router.patch("/{username}/promotion/{role}")
 async def promote_user(
     username: str, role: MemberRoleEnum, session: SessionDependency, token_details: dict = access_token_bearer
 ):
@@ -78,7 +78,7 @@ async def promote_user(
     
     print(f'promoted user: {res}')
 
-@admin_router.post("/{username}/promotion/user", response_model=User)
+@router.post("/{username}/promotion/user", response_model=User)
 async def authorize_pending_user(username: str, session: SessionDependency, token_details: dict = access_token_bearer):
     '''
     Admin grants access to the website to a newly registered user
