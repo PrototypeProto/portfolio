@@ -1,7 +1,7 @@
 from sqlmodel import SQLModel, Field, Column
 from datetime import date, datetime, time, timedelta
 from uuid import UUID, uuid4
-from sqlalchemy import Enum as SAEnum, UniqueConstraint
+from sqlalchemy import Enum as SAEnum, UniqueConstraint, func
 from sqlalchemy import Interval, Time as Time
 from sqlalchemy.dialects import postgresql as postgres
 from src.db.db_models import *
@@ -25,8 +25,14 @@ class UserID(SQLModel, table=True):
 
     __tablename__ = "user_id"
 
-    id: UUID = Field(
-        sa_column=Column(postgres.UUID, primary_key=True, default=uuid4, nullable=False)
+    id: Optional[UUID] = Field(
+        sa_column=Column(
+            postgres.UUID,
+            primary_key=True,
+            server_default=func.gen_random_uuid(),
+            nullable=False,
+        ),
+        default=None,
     )
 
     def __str__(self):
@@ -67,8 +73,14 @@ class PendingUser(SQLModel, table=True):
     )
 
     nickname: Optional[str] = Field(min_length=2, index=False, nullable=True)
-    join_date: date = Field(
-        sa_column=Column(postgres.DATE, default=date.today, index=False, nullable=False)
+    join_date: Optional[date] = Field(
+        sa_column=Column(
+            postgres.DATE,
+            server_default=func.current_date(),
+            index=False,
+            nullable=False,
+        ),
+        default=None,
     )
     request: Optional[str] = Field(nullable=True)
 
@@ -113,11 +125,23 @@ class User(SQLModel, table=True):
         sa_column=Column(postgres.DATE, index=False, nullable=False)
     )
     request: Optional[str] = Field(nullable=True)
-    verified_date: date = Field(
-        sa_column=Column(postgres.DATE, default=date.today, index=False, nullable=False)
+    verified_date: Optional[date] = Field(
+        sa_column=Column(
+            postgres.DATE,
+            server_default=func.current_date(),
+            index=False,
+            nullable=False,
+        ),
+        default=None,
     )
-    last_login_date: date = Field(
-        sa_column=Column(postgres.DATE, default=date.today, index=False, nullable=True)
+    last_login_date: Optional[date] = Field(
+        sa_column=Column(
+            postgres.DATE,
+            server_default=func.current_date(),
+            index=False,
+            nullable=True,
+        ),
+        default=None,
     )
     role: MemberRoleEnum = Field(
         default=MemberRoleEnum.USER,
@@ -128,6 +152,7 @@ class User(SQLModel, table=True):
                 create_type=False,
                 values_callable=lambda x: [e.value for e in x],
             ),
+            server_default=MemberRoleEnum.USER.value,
             index=True,
             nullable=False,
         ),
@@ -150,17 +175,23 @@ class User(SQLModel, table=True):
 class Topic(SQLModel, table=True):
     """
     Top-level category that groups related threads.
-    Organized under broaders categories, in order
+    Organized under broader categories, in order
         e.g. 'General Discussion', 'Announcements', 'Random'
 
-    thread & reply count and last activityat & threadid have corresponding triggers to keep them updated
-    group_id is optional to allow creation of topic to then assign to a grouping
+    thread & reply count and last_activity_at & last_thread_id have corresponding triggers to keep them updated.
+    group_id is optional to allow creation of a topic before assigning it to a grouping.
     """
 
     __tablename__ = "topic"
 
-    topic_id: UUID = Field(
-        sa_column=Column(postgres.UUID, primary_key=True, default=uuid4, nullable=False)
+    topic_id: Optional[UUID] = Field(
+        sa_column=Column(
+            postgres.UUID,
+            primary_key=True,
+            server_default=func.gen_random_uuid(),
+            nullable=False,
+        ),
+        default=None,
     )
     group_id: Optional[UUID] = Field(foreign_key="topic_group.group_id", nullable=True)
     name: str = Field(
@@ -171,46 +202,56 @@ class Topic(SQLModel, table=True):
     icon_url: Optional[str] = Field(sa_column=Column(postgres.VARCHAR, nullable=True))
     # lower number = higher up in the list
     display_order: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
     thread_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
     reply_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
-    created_at: datetime = Field(
+    created_at: Optional[datetime] = Field(
         sa_column=Column(
-            postgres.TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow
-        )
+            postgres.TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+        ),
+        default=None,
     )
     is_locked: bool = Field(
-        sa_column=Column(postgres.BOOLEAN, nullable=False, default=False), default=False
+        sa_column=Column(postgres.BOOLEAN, nullable=False, server_default="false"),
+        default=False,
     )  # if True, no new threads can be created
     last_activity_at: Optional[datetime] = Field(
         sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=True)
     )
-    last_thread_id: Optional[UUID] = Field(
-        sa_column=Column(postgres.UUID, nullable=True, default=None), default=None
-    )
+    last_thread_id: Optional[UUID] = Field(nullable=True, default=None)
 
 
 class TopicGroup(SQLModel, table=True):
     """
-    Organizes the topic table under broader categories
+    Organizes the topic table under broader categories.
     """
 
     __tablename__ = "topic_group"
 
-    group_id: UUID = Field(
-        sa_column=Column(postgres.UUID, primary_key=True, default=uuid4, nullable=False)
+    group_id: Optional[UUID] = Field(
+        sa_column=Column(
+            postgres.UUID,
+            primary_key=True,
+            server_default=func.gen_random_uuid(),
+            nullable=False,
+        ),
+        default=None,
     )
     name: str = Field(
         sa_column=Column(postgres.VARCHAR, unique=True, nullable=False),
         max_length=100,
     )
     display_order: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
 
 
@@ -218,17 +259,23 @@ class Thread(SQLModel, table=True):
     """
     A thread/post inside a topic, created by a user.
 
-    thread and reply count have corresponding triggers to keep them updated
+    reply_count and vote counts have corresponding triggers to keep them updated.
 
-    NOTE: viewcount is currently not planned to be supported
+    NOTE: view_count is currently not planned to be supported.
     TODO: Requires triggers: updated_at, reply_count, vote_counts, [view_count tentative]
-    NOTE: Must do a JOIN to add user.username as author_id will NOT be shared publicly
+    NOTE: Must do a JOIN to add user.username — author_id will NOT be shared publicly.
     """
 
     __tablename__ = "thread"
 
-    thread_id: UUID = Field(
-        sa_column=Column(postgres.UUID, primary_key=True, default=uuid4, nullable=False)
+    thread_id: Optional[UUID] = Field(
+        sa_column=Column(
+            postgres.UUID,
+            primary_key=True,
+            server_default=func.gen_random_uuid(),
+            nullable=False,
+        ),
+        default=None,
     )
     topic_id: UUID = Field(foreign_key="topic.topic_id", nullable=False)
     author_id: UUID = Field(foreign_key="user_id.id", nullable=False, exclude=True)
@@ -237,49 +284,55 @@ class Thread(SQLModel, table=True):
         max_length=200,
     )
     body: str = Field(sa_column=Column(postgres.TEXT, nullable=False))
-    created_at: datetime = Field(
+    created_at: Optional[datetime] = Field(
         sa_column=Column(
-            postgres.TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow
-        )
+            postgres.TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+        ),
+        default=None,
     )
     updated_at: Optional[datetime] = Field(
         sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=True)
     )
     is_pinned: bool = Field(
-        sa_column=Column(postgres.BOOLEAN, nullable=False, default=False), default=False
+        sa_column=Column(postgres.BOOLEAN, nullable=False, server_default="false"),
+        default=False,
     )
     pin_expires_at: Optional[datetime] = Field(
         sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=True)
     )  # None = pinned forever
     is_locked: bool = Field(
-        sa_column=Column(postgres.BOOLEAN, nullable=False, default=False), default=False
+        sa_column=Column(postgres.BOOLEAN, nullable=False, server_default="false"),
+        default=False,
     )  # if True, no new replies allowed
     is_deleted: bool = Field(
-        sa_column=Column(postgres.BOOLEAN, nullable=False, default=False), default=False
+        sa_column=Column(postgres.BOOLEAN, nullable=False, server_default="false"),
+        default=False,
     )  # soft delete
     reply_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
     upvote_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
     downvote_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
     view_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
     last_activity_at: Optional[datetime] = Field(
         sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=True, index=True)
-    )  # None = pinned forever
-    last_activity: Optional[UUID] = Field(
-        sa_column=Column(postgres.UUID, nullable=True, default=None), default=None
     )
+    last_activity: Optional[UUID] = Field(nullable=True, default=None)
 
 
 class ThreadVote(SQLModel, table=True):
     """
-    Tracks which user voted on which thread and whether it was up/downvoted
+    Tracks which user voted on which thread and whether it was up/downvoted.
     Composite PK prevents a user voting twice on the same thread.
 
     NOTE: dropped created_at
@@ -314,7 +367,7 @@ class ThreadVote(SQLModel, table=True):
 #         )
 #     )
 #     created_at: datetime = Field(
-#         sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow)
+#         sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
 #     )
 
 
@@ -326,15 +379,20 @@ class Reply(SQLModel, table=True):
 
     TODO: trigger updating thread & topic table
     NOTE: updated_at also used as a flag to note if user has edited their post
-    NOTE: decide how to deal with delete
     NOTE: affected by voting triggers
-    NOTE: Must do a JOIN to add user.username as author_id will NOT be shared publicly
+    NOTE: Must do a JOIN to add user.username — author_id will NOT be shared publicly
     """
 
     __tablename__ = "reply"
 
-    reply_id: UUID = Field(
-        sa_column=Column(postgres.UUID, primary_key=True, default=uuid4, nullable=False)
+    reply_id: Optional[UUID] = Field(
+        sa_column=Column(
+            postgres.UUID,
+            primary_key=True,
+            server_default=func.gen_random_uuid(),
+            nullable=False,
+        ),
+        default=None,
     )
     thread_id: UUID = Field(foreign_key="thread.thread_id", nullable=False)
     author_id: UUID = Field(foreign_key="user_id.id", nullable=False, exclude=True)
@@ -342,22 +400,26 @@ class Reply(SQLModel, table=True):
         foreign_key="reply.reply_id", nullable=True, default=None
     )  # self-referential — None means top-level reply
     body: str = Field(sa_column=Column(postgres.TEXT, nullable=False))
-    created_at: datetime = Field(
+    created_at: Optional[datetime] = Field(
         sa_column=Column(
-            postgres.TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow
-        )
+            postgres.TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
+        ),
+        default=None,
     )
     updated_at: Optional[datetime] = Field(
         sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=True)
     )
     is_deleted: bool = Field(
-        sa_column=Column(postgres.BOOLEAN, nullable=False, default=False), default=False
+        sa_column=Column(postgres.BOOLEAN, nullable=False, server_default="false"),
+        default=False,
     )  # soft delete — keeps thread structure intact
     upvote_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
     downvote_count: int = Field(
-        sa_column=Column(postgres.INTEGER, nullable=False, default=0), default=0
+        sa_column=Column(postgres.INTEGER, nullable=False, server_default="0"),
+        default=0,
     )
 
 
@@ -383,14 +445,14 @@ class ReplyVote(SQLModel, table=True):
 #     """
 #     An attachment on a reply — either an image URL or a hyperlink.
 #     A reply can have multiple attachments.
-
+#
 #     TODO: WIP on how to best implement
 #     """
-
+#
 #     __tablename__ = "reply_attachment"
-
+#
 #     attachment_id: UUID = Field(
-#         sa_column=Column(postgres.UUID, primary_key=True, default=uuid4, nullable=False)
+#         sa_column=Column(postgres.UUID, primary_key=True, server_default=func.gen_random_uuid(), nullable=False)
 #     )
 #     reply_id: UUID = Field(foreign_key="reply.reply_id", nullable=False)
 #     attachment_type: AttachmentType = Field(
@@ -412,29 +474,11 @@ class ReplyVote(SQLModel, table=True):
 #     )  # display text for hyperlinks
 #     created_at: datetime = Field(
 #         sa_column=Column(
-#             postgres.TIMESTAMP(timezone=True), nullable=False, default=datetime.utcnow
+#             postgres.TIMESTAMP(timezone=True), nullable=False, server_default=func.now()
 #         )
 #     )
 
 
 """##################################
     NOTE: END FORUM DATA 
-##################################"""
-
-
-"""##################################
-    NOTE: START TEMP DATA 
-##################################"""
-
-"""##################################
-    NOTE: END TEMP DATA 
-##################################"""
-
-
-"""##################################
-    NOTE: START TEMP DATA 
-##################################"""
-
-"""##################################
-    NOTE: END REGISTRATION DATA 
 ##################################"""

@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, Column
+from uuid import UUID
 from typing import Optional
 from src.db.db_models import MemberRoleEnum
 from datetime import date, datetime, time
