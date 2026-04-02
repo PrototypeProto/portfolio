@@ -1,4 +1,5 @@
 from sqlmodel import SQLModel, Field, Column
+from uuid import UUID
 from typing import Optional
 from src.db.db_models import MemberRoleEnum
 from datetime import date, datetime, time
@@ -54,38 +55,6 @@ class TopicRead(SQLModel):
     last_thread_id: Optional[UUID]
 
 
-class TopicWithGroupRead(TopicRead):
-    group: Optional[TopicGroupRead]
-
-
-# TOPIC WRITE MODELS
-class TopicCreate(SQLModel):
-    group_id: Optional[UUID] = None
-    name: str = Field(max_length=100)
-    description: Optional[str] = None
-    icon_url: Optional[str] = None
-    display_order: int = 0
-
-
-class TopicUpdate(SQLModel):
-    group_id: Optional[UUID] = None
-    name: Optional[str] = Field(default=None, max_length=100)
-    description: Optional[str] = None
-    icon_url: Optional[str] = None
-    display_order: Optional[int] = None
-    is_locked: Optional[bool] = (
-        None  # prefer the dedicated /lock endpoint, but available here for bulk admin updates
-    )
-
-
-class TopicGroupCreate(SQLModel):
-    name: str = Field(max_length=100)
-    display_order: int = 0
-
-
-class TopicGroupUpdate(SQLModel):
-    name: Optional[str] = Field(default=None, max_length=100)
-    display_order: Optional[int] = None
 
 
 # # # # # # # # # #
@@ -96,7 +65,7 @@ class ThreadRead(SQLModel):
     topic_id: UUID
 
     author_id: UUID
-    author_username: str  # to display poster name
+    author_username: str  # JOIN on user table
 
     title: str
     body: str
@@ -106,23 +75,36 @@ class ThreadRead(SQLModel):
 
     is_pinned: bool
     is_locked: bool
+    is_deleted: bool
 
     reply_count: int
     upvote_count: int
     downvote_count: int
+
+    last_activity_at: Optional[datetime]
 
 
 class ThreadListItem(SQLModel):
+    """
+    Compact thread row for the topic listing page (/forum/{topic_name}).
+    Includes the latest-activity username for the right-hand activity column.
+    """
     thread_id: UUID
     title: str
+ 
     author_id: UUID
+    author_username: str  # JOIN on user table
+ 
     created_at: datetime
-
+ 
     reply_count: int
     upvote_count: int
     downvote_count: int
-
+ 
     is_pinned: bool
+ 
+    last_activity_at: Optional[datetime]
+    last_reply_username: Optional[str]  # username of most recent replier (JOIN)
 
 
 class ThreadWithVote(ThreadRead):
@@ -151,57 +133,52 @@ class PaginatedThreads(SQLModel):
 
 
 
-
-# SEARCH
-class SearchResults(SQLModel):
-    query: str
-    threads: list[ThreadListItem]
-    total: int
-
-
 # # # # # # # # # #
 # Replies
 # # # # # # # # # #
 class ReplyRead(SQLModel):
+    """
+    A single reply card — used on /thread/{thread_id}.
+    reply_number is the 1-based creation order within the thread (body = #1).
+    author_username resolved via JOIN.
+    parent_author_username is the username being replied to (for the 'replying to' banner).
+    """
     reply_id: UUID
     thread_id: UUID
+ 
     author_id: UUID
-    author_username: Optional[str] # JOIN
+    author_username: str  # JOIN on user table
+ 
     parent_reply_id: Optional[UUID]
-
+    parent_author_username: Optional[str]  # JOIN — who is being replied to
+ 
     body: str
-
+    is_deleted: bool
+ 
     created_at: datetime
     updated_at: Optional[datetime]
-
+ 
+    reply_number: int  # 1-based order of creation in the thread
+ 
     upvote_count: int
     downvote_count: int
 
-
-class ReplyTree(ReplyRead):
-    children: list["ReplyTree"] = []
-
-
 class ReplyWithVote(ReplyRead):
+    """ReplyRead + the requesting user's current vote state."""
     user_vote: Optional[bool]  # True = upvote, False = downvote, None = no vote
 
-
-class ReplyAttachmentRead(SQLModel):
-    attachment_id: UUID
-    reply_id: UUID
-
-    attachment_type: AttachmentType
-    url: str
-    label: Optional[str]
-
-    created_at: datetime
-
 class PaginatedReplies(SQLModel):
+    """
+    Paginated reply list for /thread/{thread_id}.
+    Page 1 returns up to 14 items (slot 1 is the thread body treated as reply #1).
+    Page 2+ returns up to 15 items.
+    """
     items: list[ReplyRead]
     total: int
     page: int
     page_size: int
     pages: int
+
 
 # REPLY WRITE MODELS
 class ReplyCreate(SQLModel):
@@ -213,13 +190,6 @@ class ReplyUpdate(SQLModel):
     body: str  # only the body is ever editable by the author
 
 
-# ATTACHMENT WRITE MODELS
-class ReplyAttachmentCreate(SQLModel):
-    attachment_type: AttachmentType
-    url: str = Field(max_length=2048)
-    label: Optional[str] = Field(default=None, max_length=200)
-
-
 # # # # # # # # # #
 # VOTE PAYLOADS / RESULTS
 # # # # # # # # # #
@@ -228,39 +198,7 @@ class VotePayload(SQLModel):
 
 
 class VoteResult(SQLModel):
+    """Returned after any vote action so the client can update counts in place."""
     upvote_count: int
     downvote_count: int
-
-
-# class ThreadRead(SQLModel):
-#     thread_id: UUID
-#     topic_id: UUID
-#     author_id: UUID
-
-#     title: str
-#     body: str
-
-#     created_at: datetime
-#     updated_at: Optional[datetime]
-
-#     is_pinned: bool
-#     pin_expires_at: Optional[datetime]
-#     is_locked: bool
-
-#     reply_count: int
-#     upvote_count: int
-#     downvote_count: int
-#     view_count: int
-
-
-# NOTE: use this when doing joins
-# def thread_to_read(thread: Thread, username: str) -> ThreadRead:
-#     return ThreadRead(**thread.dict(), author_username=username)
-
-# threads = [
-#     ThreadRead(
-#         **thread.dict(),
-#         author_username=username
-#     )
-#     for thread, username in results
-# ]
+    user_vote: Optional[bool]  # resulting vote state after the action
