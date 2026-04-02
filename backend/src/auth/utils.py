@@ -7,7 +7,7 @@ from uuid import uuid4
 import logging
 
 # 3600 sec -> 60 min -> 1 hr
-ACCESS_TOKEN_EXPIRY = 15
+ACCESS_TOKEN_EXPIRY = 45
 
 
 # Hash a password using bcrypt
