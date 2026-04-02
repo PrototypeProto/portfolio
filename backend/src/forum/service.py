@@ -160,7 +160,7 @@ class ForumService:
             thread_id=row.thread_id,
             topic_id=row.topic_id,
             author_id=row.author_id,
-            author_username=row.author_username,
+            author_username=row.username,
             title=row.title,
             body=row.body,
             created_at=row.created_at,
@@ -213,7 +213,7 @@ class ForumService:
     async def vote_thread(
         self, thread: Thread, user_id: UUID, is_upvote: bool, session: AsyncSession
     ) -> VoteResult:
-        existing = (await session.exec(
+        existing: Optional[ThreadVote] = (await session.exec(
             select(ThreadVote)
             .where(ThreadVote.user_id == user_id)
             .where(ThreadVote.thread_id == thread.thread_id)
@@ -221,23 +221,13 @@ class ForumService:
 
         resulting_vote: Optional[bool] = is_upvote
 
-        if existing:
+        # vote counts handled by triggers
+        if existing: 
             if existing.is_upvote == is_upvote:
-                # same vote → un-vote (toggle off)
-                if existing.is_upvote:
-                    thread.upvote_count = max(0, thread.upvote_count - 1)
-                else:
-                    thread.downvote_count = max(0, thread.downvote_count - 1)
                 await session.delete(existing)
                 resulting_vote = None
-            else:
-                # flip vote
-                if is_upvote:
-                    thread.upvote_count += 1
-                    thread.downvote_count = max(0, thread.downvote_count - 1)
-                else:
-                    thread.downvote_count += 1
-                    thread.upvote_count = max(0, thread.upvote_count - 1)
+            else: 
+                # # flip vote
                 existing.is_upvote = is_upvote
         else:
             session.add(ThreadVote(
@@ -245,10 +235,6 @@ class ForumService:
                 thread_id=thread.thread_id,
                 is_upvote=is_upvote,
             ))
-            if is_upvote:
-                thread.upvote_count += 1
-            else:
-                thread.downvote_count += 1
 
         await session.commit()
         await session.refresh(thread)
@@ -282,13 +268,14 @@ class ForumService:
         ParentReply = aliased(Reply)
         ParentAuthorUser = aliased(User)
 
-        base_filter = (
-            Reply.thread_id == thread_id,
-            Reply.parent_reply_id == None,  # top-level only; children fetched separately
-        )
+        # NOTE: this is for reddit-style comments, may implement in the future in like discussions: *base_filter
+        # base_filter = (
+        #     Reply.thread_id == thread_id,
+        #     Reply.parent_reply_id == None,  # top-level only; children fetched separately
+        # )
 
         count_result = await session.exec(
-            select(func.count(Reply.reply_id)).where(*base_filter)
+            select(func.count(Reply.reply_id)).where(Reply.thread_id == thread_id)
         )
         total = count_result.one()
 
@@ -313,7 +300,7 @@ class ForumService:
             .join(AuthorUser, AuthorUser.user_id == Reply.author_id)
             .outerjoin(ParentReply, ParentReply.reply_id == Reply.parent_reply_id)
             .outerjoin(ParentAuthorUser, ParentAuthorUser.user_id == ParentReply.author_id)
-            .where(*base_filter)
+            .where(Reply.thread_id == thread_id)
             .order_by(Reply.created_at.asc())
             .offset(offset)
             .limit(page_size)
@@ -399,9 +386,55 @@ class ForumService:
             for r in rows
         ]
  
-    async def get_reply(self, reply_id: UUID, session: AsyncSession) -> Optional[Reply]:
+    async def get_reply_orm(self, reply_id: UUID, session: AsyncSession) -> Optional[Reply]:
         """Returns raw ORM Reply — used for mutation guards (is_deleted check, author check)."""
         return await session.get(Reply, reply_id)
+
+    async def get_reply(self, reply_id: UUID, session: AsyncSession) -> Optional[ReplyRead]:
+        """Single reply with author_username resolved via JOIN."""
+        AuthorUser = aliased(User)
+        ParentReply = aliased(Reply)
+        ParentAuthorUser = aliased(User)
+
+        row = (await session.exec(
+            select(
+                Reply.reply_id,
+                Reply.thread_id,
+                Reply.author_id,
+                AuthorUser.username.label("author_username"),
+                Reply.parent_reply_id,
+                ParentAuthorUser.username.label("parent_author_username"),
+                Reply.body,
+                Reply.is_deleted,
+                Reply.created_at,
+                Reply.updated_at,
+                Reply.upvote_count,
+                Reply.downvote_count,
+            )
+            .join(AuthorUser, AuthorUser.user_id == Reply.author_id)
+            .outerjoin(ParentReply, ParentReply.reply_id == Reply.parent_reply_id)
+            .outerjoin(ParentAuthorUser, ParentAuthorUser.user_id == ParentReply.author_id)
+            .where(Reply.reply_id == reply_id)
+        )).first()
+
+        if not row:
+            return None
+
+        return ReplyRead(
+            reply_id=row.reply_id,
+            thread_id=row.thread_id,
+            author_id=row.author_id,
+            author_username=row.author_username,
+            parent_reply_id=row.parent_reply_id,
+            parent_author_username=row.parent_author_username,
+            body=row.body,
+            is_deleted=row.is_deleted,
+            created_at=row.created_at,
+            updated_at=row.updated_at,
+            reply_number=0,
+            upvote_count=row.upvote_count,
+            downvote_count=row.downvote_count,
+        )
  
     async def create_reply(
         self,
@@ -436,12 +469,12 @@ class ForumService:
  
     async def update_reply(
         self, reply: Reply, payload: ReplyUpdate, session: AsyncSession
-    ) -> Reply:
+    ) -> Optional[ReplyRead]:
         reply.body = payload.body
         reply.updated_at = datetime.utcnow()
         await session.commit()
-        await session.refresh(reply)
-        return reply
+        # await session.refresh(reply)
+        return await self.get_reply(reply.reply_id, session)
  
     async def delete_reply(self, reply: Reply, session: AsyncSession) -> None:
         reply.is_deleted = True
@@ -462,19 +495,15 @@ class ForumService:
 
         if existing:
             if existing.is_upvote == is_upvote:
-                if existing.is_upvote:
-                    reply.upvote_count = max(0, reply.upvote_count - 1)
-                else:
-                    reply.downvote_count = max(0, reply.downvote_count - 1)
                 await session.delete(existing)
                 resulting_vote = None
             else:
-                if is_upvote:
-                    reply.upvote_count += 1
-                    reply.downvote_count = max(0, reply.downvote_count - 1)
-                else:
-                    reply.downvote_count += 1
-                    reply.upvote_count = max(0, reply.upvote_count - 1)
+                # if is_upvote:
+                #     reply.upvote_count += 1
+                #     reply.downvote_count = max(0, reply.downvote_count - 1)
+                # else:
+                #     reply.downvote_count += 1
+                #     reply.upvote_count = max(0, reply.upvote_count - 1)
                 existing.is_upvote = is_upvote
         else:
             session.add(ReplyVote(
@@ -482,10 +511,7 @@ class ForumService:
                 reply_id=reply.reply_id,
                 is_upvote=is_upvote,
             ))
-            if is_upvote:
-                reply.upvote_count += 1
-            else:
-                reply.downvote_count += 1
+
 
         await session.commit()
         await session.refresh(reply)

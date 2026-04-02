@@ -49,6 +49,7 @@ async def list_topics(
 
 # THREADS
 # NOTE: dont plan on using top/oldest
+@router.get("/topics/{topic_id}/threads", response_model=PaginatedThreads)
 async def list_threads(
     topic_id: UUID,
     session: SessionDependency,
@@ -67,7 +68,7 @@ async def list_threads(
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
 
-    return await service.get_threads(topic_id, page, page_size, "latest", session)
+    return await service.get_threads(topic_id, page, page_size, session)
 
 @router.get("/threads/{thread_id}", response_model=ThreadRead)
 async def get_thread(thread_id: UUID, session: SessionDependency):
@@ -224,18 +225,34 @@ async def list_replies(
 
     return await service.get_replies(thread_id, page, page_size, session)
 
-
-@router.get("/replies/{reply_id}/children", response_model=list[ReplyRead])
-async def get_reply_children(
+@router.get("/replies/{reply_id}/parent", response_model=ReplyRead)
+async def get_reply_parent(
     reply_id: UUID,
     session: SessionDependency,
 ):
     """
-    GET /forum/replies/{reply_id}/children
-    Fetches immediate nested replies for a parent reply (one level at a time).
-    Used to lazily load sub-replies when the user clicks 'reply to' context.
+    GET /forum/replies/{reply_id}/parent
+    Fetches the parent reply for a given reply, used to render the
+    'replying to' context block when the parent is not in the current page.
+    Returns 404 if the reply has no parent (is a top-level reply).
     """
-    return await service.get_reply_children(reply_id, session)
+    reply = await service.get_reply_orm(reply_id, session)
+    if not reply or not reply.parent_reply_id:
+        raise HTTPException(status_code=404, detail="No parent reply")
+    return await service.get_reply(reply.parent_reply_id, session)
+
+# @router.get("/replies/{reply_id}/children", response_model=list[ReplyRead])
+# async def get_reply_children(
+#     reply_id: UUID,
+#     session: SessionDependency,
+# ):
+#     """
+#     NOTE: this is for reddit-style comments
+#     GET /forum/replies/{reply_id}/children
+#     Fetches immediate nested replies for a parent reply (one level at a time).
+#     Used to lazily load sub-replies when the user clicks 'reply to' context.
+#     """
+#     return await service.get_reply_children(reply_id, session)
 
 
 @router.post(
@@ -264,7 +281,7 @@ async def create_reply(
         raise HTTPException(status_code=403, detail="Thread is locked")
 
     if payload.parent_reply_id:
-        parent = await service.get_reply(payload.parent_reply_id, session)
+        parent = await service.get_reply_orm(payload.parent_reply_id, session)
         if not parent or parent.thread_id != thread_id:
             raise HTTPException(status_code=400, detail="Invalid parent reply")
 
@@ -286,7 +303,7 @@ async def update_reply(
     if not await auth_service.is_valid_user_token(token_details, session):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
 
-    reply = await service.get_reply(reply_id, session)
+    reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
         raise HTTPException(status_code=404, detail="Reply not found")
 
@@ -311,7 +328,7 @@ async def delete_reply(
     if not await auth_service.is_valid_user_token(token_details, session):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
 
-    reply = await service.get_reply(reply_id, session)
+    reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
         raise HTTPException(status_code=404, detail="Reply not found")
 
@@ -341,7 +358,7 @@ async def vote_reply(
     if not await auth_service.is_valid_user_token(token_details, session):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
 
-    reply = await service.get_reply(reply_id, session)
+    reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
         raise HTTPException(status_code=404, detail="Reply not found")
 
