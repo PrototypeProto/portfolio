@@ -312,33 +312,25 @@ class ForumService:
         thread_id: UUID,
         page: int,
         page_size: int,
+        user_id: UUID,
         session: AsyncSession,
     ) -> PaginatedReplies:
         """
-        Returns a page of replies for the thread (ordered by created_at ASC).
-        reply_number is computed as the row's 1-based rank across the entire thread.
-
-        The thread body reply (#1) is included in the same flat list.
-        Page 1 returns page_size=14 items; page 2+ returns page_size=15.
-        author_username and parent_author_username are resolved via JOINs.
+        Returns a page of replies ordered by created_at ASC.
+        reply_number is the 1-based rank across the full thread.
+        author_username and parent_author_username resolved via JOINs.
+        user_vote is the requesting user's current vote on each reply
+        (True = upvoted, False = downvoted, None = no vote).
         """
         AuthorUser = aliased(User)
         ParentReply = aliased(Reply)
         ParentAuthorUser = aliased(User)
-
-        # NOTE: this is for reddit-style comments, may implement in the future in like discussions: *base_filter
-        # base_filter = (
-        #     Reply.thread_id == thread_id,
-        #     Reply.parent_reply_id == None,  # top-level only; children fetched separately
-        # )
 
         count_result = await session.exec(
             select(func.count(Reply.reply_id)).where(Reply.thread_id == thread_id)
         )
         total = count_result.one()
 
-        # reply_number = global rank across all top-level replies, ordered by created_at
-        # We compute this as offset + row_position within the page
         offset = (page - 1) * page_size
         rows = (await session.exec(
             select(
@@ -354,10 +346,15 @@ class ForumService:
                 Reply.updated_at,
                 Reply.upvote_count,
                 Reply.downvote_count,
+                ReplyVote.is_upvote.label("user_vote"),
             )
             .join(AuthorUser, AuthorUser.user_id == Reply.author_id)
             .outerjoin(ParentReply, ParentReply.reply_id == Reply.parent_reply_id)
             .outerjoin(ParentAuthorUser, ParentAuthorUser.user_id == ParentReply.author_id)
+            .outerjoin(
+                ReplyVote,
+                (ReplyVote.reply_id == Reply.reply_id) & (ReplyVote.user_id == user_id),
+            )
             .where(Reply.thread_id == thread_id)
             .order_by(Reply.created_at.asc())
             .offset(offset)
@@ -365,7 +362,7 @@ class ForumService:
         )).all()
 
         items = [
-            ReplyRead(
+            ReplyWithVote(
                 reply_id=r.reply_id,
                 thread_id=r.thread_id,
                 author_id=r.author_id,
@@ -376,9 +373,10 @@ class ForumService:
                 is_deleted=r.is_deleted,
                 created_at=r.created_at,
                 updated_at=r.updated_at,
-                reply_number=offset + idx + 1,  # 1-based global rank
+                reply_number=offset + idx + 1,
                 upvote_count=r.upvote_count,
                 downvote_count=r.downvote_count,
+                user_vote=r.user_vote,  # None when no ReplyVote row matched
             )
             for idx, r in enumerate(rows)
         ]

@@ -203,8 +203,7 @@ async def list_replies(
     GET /forum/threads/{thread_id}/replies?page=1
     Paginated replies ordered by created_at ASC.
     reply_number reflects the 1-based creation rank across the full thread.
-    page 1 → page_size 14
-    page 2+ → page_size 15
+    user_vote is populated for the requesting user.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
@@ -215,7 +214,7 @@ async def list_replies(
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    return await service.get_replies(thread_id, page, page_size, session)
+    return await service.get_replies(thread_id, page, page_size, token_details['user']['user_id'], session)
 
 
 @router.get("/replies/{reply_id}/parent", response_model=ReplyRead)

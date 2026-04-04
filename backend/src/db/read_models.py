@@ -166,7 +166,7 @@ class ReplyRead(SQLModel):
 
 class ReplyWithVote(ReplyRead):
     """ReplyRead + the requesting user's current vote state."""
-    user_vote: Optional[bool]  # True = upvote, False = downvote, None = no vote
+    user_vote: Optional[bool] = False  # True = upvote, False = downvote, None = no vote
 
 class PaginatedReplies(SQLModel):
     """
@@ -174,7 +174,7 @@ class PaginatedReplies(SQLModel):
     Page 1 returns up to 14 items (slot 1 is the thread body treated as reply #1).
     Page 2+ returns up to 15 items.
     """
-    items: list[ReplyRead]
+    items: list[ReplyWithVote]
     total: int
     page: int
     page_size: int
