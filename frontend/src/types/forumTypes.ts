@@ -16,8 +16,6 @@ export interface Topic {
   is_locked: boolean
   last_activity_at: string | null
   last_thread_id: string | null
-  // Username of whoever last posted in this topic (reply or OP).
-  // Null if the topic has no threads yet.
   last_poster_username: string | null
 }
 
@@ -32,8 +30,6 @@ export interface ThreadListItem {
   downvote_count: number
   is_pinned: boolean
   last_activity_at: string | null
-  // Username of the most recent replier; null when no replies exist yet,
-  // in which case the frontend falls back to author_username.
   last_reply_username: string | null
 }
 
@@ -77,6 +73,9 @@ export interface ReplyRead {
   reply_number: number
   upvote_count: number
   downvote_count: number
+  // Populated by the backend for the requesting user.
+  // true = upvoted, false = downvoted, null = no vote.
+  user_vote: boolean | null
 }
 
 export interface PaginatedReplies {

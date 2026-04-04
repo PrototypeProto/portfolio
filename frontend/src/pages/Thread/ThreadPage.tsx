@@ -42,13 +42,11 @@ function PageNav({
 
   return (
     <div className="thread-page-nav">
-      {/* Completely hidden when on page 1 */}
       {page > 1 && (
         <button className="page-btn" onClick={() => goToPage(page - 1)}>
           ← Prev
         </button>
       )}
-
       {range.map((item, i) =>
         item === "..." ? (
           <span key={`ellipsis-${i}`} className="page-ellipsis">…</span>
@@ -62,8 +60,6 @@ function PageNav({
           </button>
         ),
       )}
-
-      {/* Completely hidden on last page */}
       {page < pages && (
         <button className="page-btn" onClick={() => goToPage(page + 1)}>
           Next →
@@ -103,7 +99,6 @@ export default function ThreadPage() {
     submitThreadVote,
     submitReplyVote,
     threadVote,
-    replyVotes,
     submitError,
   } = useThreadPage(threadId ?? "");
 
@@ -140,9 +135,8 @@ export default function ThreadPage() {
     document.getElementById("reply-box")?.scrollIntoView({ behavior: "smooth" });
   }
 
-  // Synthetic OP card built from thread data.
-  // upvote_count/downvote_count are taken from the thread state so they stay
-  // in sync after the user votes on the thread.
+  // Synthetic OP card — assembled from thread data so the body renders
+  // as the first reply card on page 1 without a separate backend slot.
   const opCard: ReplyRead = {
     reply_id: thread.thread_id,
     thread_id: thread.thread_id,
@@ -157,6 +151,7 @@ export default function ThreadPage() {
     reply_number: 1,
     upvote_count: thread.upvote_count,
     downvote_count: thread.downvote_count,
+    user_vote: threadVote,
   };
 
   return (
@@ -191,7 +186,7 @@ export default function ThreadPage() {
         ) : (
           <div className="thread-reply-list">
 
-            {/* OP body — rendered as the first reply card, only on page 1 */}
+            {/* OP body — only on page 1 */}
             {page === 1 && (
               <ReplyCard
                 reply={opCard}
@@ -211,7 +206,7 @@ export default function ThreadPage() {
               />
             )}
 
-            {/* Paginated replies */}
+            {/* Paginated replies — user_vote comes directly from the server */}
             {replies.map((reply) => (
               <ReplyCard
                 key={reply.reply_id}
@@ -228,7 +223,7 @@ export default function ThreadPage() {
                 onReplyTo={(r) => { setReplyingTo(r); scrollToReplyBox(); }}
                 onDelete={submitDelete}
                 onVote={submitReplyVote}
-                userVote={replyVotes[reply.reply_id] ?? null}
+                userVote={reply.user_vote}
               />
             ))}
 

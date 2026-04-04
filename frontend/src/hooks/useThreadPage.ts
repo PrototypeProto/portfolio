@@ -37,7 +37,6 @@ interface UseThreadPageResult {
   submitThreadVote: (isUpvote: boolean) => Promise<void>
   submitReplyVote: (replyId: string, isUpvote: boolean) => Promise<void>
   threadVote: boolean | null
-  replyVotes: Record<string, boolean | null>
   submitError: string | null
 }
 
@@ -62,7 +61,6 @@ export function useThreadPage(threadId: string): UseThreadPageResult {
 
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [threadVote, setThreadVote] = useState<boolean | null>(null);
-  const [replyVotes, setReplyVotes] = useState<Record<string, boolean | null>>({});
 
   // Fetch thread once on mount
   useEffect(() => {
@@ -148,15 +146,12 @@ export function useThreadPage(threadId: string): UseThreadPageResult {
     setReplyBody("");
     setReplyingTo(null);
 
-    // Backend always uses PAGE_SIZE=15, so offset math is consistent across pages.
     const newTotal = total + 1;
     const newLastPage = Math.ceil(newTotal / PAGE_SIZE);
 
     if (newLastPage === page) {
-      // Still on the last page — setPage is a no-op so call fetchReplies directly
       await fetchReplies(page);
     } else {
-      // Overflowed onto a new page — triggers useEffect to fetch
       setPage(newLastPage);
     }
   }, [replyBody, replyingTo, threadId, total, page, fetchReplies]);
@@ -215,6 +210,8 @@ export function useThreadPage(threadId: string): UseThreadPageResult {
   const submitReplyVote = useCallback(async (replyId: string, isUpvote: boolean) => {
     const res = await voteReply(replyId, { is_upvote: isUpvote });
     if (!res.ok || !res.data) return;
+    // Update counts and user_vote in place directly on the reply object —
+    // no separate replyVotes map needed since user_vote is now part of ReplyRead.
     setReplies((prev) =>
       prev.map((r) =>
         r.reply_id === replyId
@@ -222,11 +219,11 @@ export function useThreadPage(threadId: string): UseThreadPageResult {
               ...r,
               upvote_count: res.data!.upvote_count,
               downvote_count: res.data!.downvote_count,
+              user_vote: res.data!.user_vote,
             }
           : r,
       ),
     );
-    setReplyVotes((prev) => ({ ...prev, [replyId]: res.data!.user_vote }));
   }, []);
 
   return {
@@ -255,7 +252,6 @@ export function useThreadPage(threadId: string): UseThreadPageResult {
     submitThreadVote,
     submitReplyVote,
     threadVote,
-    replyVotes,
     submitError,
   };
 }
