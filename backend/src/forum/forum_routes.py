@@ -1,5 +1,5 @@
 from uuid import UUID
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Body, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import Session, select, func
 from typing import Optional, Annotated
@@ -44,11 +44,7 @@ async def list_topics(
     return await service.retrieve_topics(group_id, session)
 
 
-
-
-
 # THREADS
-# NOTE: dont plan on using top/oldest
 @router.get("/topics/{topic_id}/threads", response_model=PaginatedThreads)
 async def list_threads(
     topic_id: UUID,
@@ -59,16 +55,17 @@ async def list_threads(
     GET /forum/topics/{topic_id}/threads?page=1
     Paginated thread listing ordered by last_activity_at desc.
     Pinned (non-expired) threads float to the top on page 1 only.
-    page 1 → page_size 14  (reserves visual slot for the pinned-thread header)
+    page 1 → page_size 14
     page 2+ → page_size 15
     """
-    page_size = 15 if page > 1 else 14
+    page_size = 15
 
     topic = await service.get_topic(topic_id, session)
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
 
     return await service.get_threads(topic_id, page, page_size, session)
+
 
 @router.get("/threads/{thread_id}", response_model=ThreadRead)
 async def get_thread(thread_id: UUID, session: SessionDependency):
@@ -125,7 +122,6 @@ async def update_thread(
     if not await auth_service.is_valid_user_token(token_details, session):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
 
-    # Use ORM object for mutation
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
@@ -172,11 +168,10 @@ async def delete_thread(
 
 
 # THREAD VOTES
-
 @router.post("/threads/{thread_id}/vote", response_model=VoteResult)
 async def vote_thread(
     thread_id: UUID,
-    is_upvote: bool,
+    payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
     token_details: dict = access_token_bearer,
 ):
@@ -193,12 +188,10 @@ async def vote_thread(
         raise HTTPException(status_code=404, detail="Thread not found")
 
     user_id = UUID(token_details["user"]["user_id"])
-    return await service.vote_thread(thread, user_id, is_upvote, session)
-
+    return await service.vote_thread(thread, user_id, payload.is_upvote, session)
 
 
 # REPLIES
-
 @router.get("/threads/{thread_id}/replies", response_model=PaginatedReplies)
 async def list_replies(
     thread_id: UUID,
@@ -208,22 +201,22 @@ async def list_replies(
 ):
     """
     GET /forum/threads/{thread_id}/replies?page=1
-    Paginated top-level replies ordered by created_at ASC.
+    Paginated replies ordered by created_at ASC.
     reply_number reflects the 1-based creation rank across the full thread.
-    page 1 → page_size 14  (the thread body occupies logical slot #1 in the UI)
+    page 1 → page_size 14
     page 2+ → page_size 15
-    Nested children are fetched separately via GET /replies/{reply_id}/children.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
 
-    page_size: int = 14 if page == 1 else 15
+    page_size: int = 15
 
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
 
     return await service.get_replies(thread_id, page, page_size, session)
+
 
 @router.get("/replies/{reply_id}/parent", response_model=ReplyRead)
 async def get_reply_parent(
@@ -240,19 +233,6 @@ async def get_reply_parent(
     if not reply or not reply.parent_reply_id:
         raise HTTPException(status_code=404, detail="No parent reply")
     return await service.get_reply(reply.parent_reply_id, session)
-
-# @router.get("/replies/{reply_id}/children", response_model=list[ReplyRead])
-# async def get_reply_children(
-#     reply_id: UUID,
-#     session: SessionDependency,
-# ):
-#     """
-#     NOTE: this is for reddit-style comments
-#     GET /forum/replies/{reply_id}/children
-#     Fetches immediate nested replies for a parent reply (one level at a time).
-#     Used to lazily load sub-replies when the user clicks 'reply to' context.
-#     """
-#     return await service.get_reply_children(reply_id, session)
 
 
 @router.post(
@@ -346,12 +326,12 @@ async def delete_reply(
 @router.post("/replies/{reply_id}/vote", response_model=VoteResult)
 async def vote_reply(
     reply_id: UUID,
-    payload: VotePayload,
+    payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
     token_details: dict = access_token_bearer,
 ):
     """
-    POST /forum/replies/{reply_id}/vote  { payload: VotePayload }
+    POST /forum/replies/{reply_id}/vote  { is_upvote: bool }
     Same toggle/flip logic as thread votes.
     Returns updated counts + resulting vote state.
     """
@@ -364,7 +344,3 @@ async def vote_reply(
 
     user_id = UUID(token_details["user"]["user_id"])
     return await service.vote_reply(reply, user_id, payload.is_upvote, session)
-
-
-
-

@@ -28,12 +28,70 @@ class ForumService:
 
     async def retrieve_topics(
         self, group_id: Optional[UUID], session: AsyncSession
-    ) -> list[Topic]:
-        query = select(Topic).order_by(Topic.group_id, Topic.display_order)
+    ) -> list[TopicRead]:
+        """
+        Returns all topics with last_poster_username resolved.
+
+        Resolution chain for last poster:
+          Topic.last_thread_id → Thread.last_activity (reply FK)
+            → Reply.author_id → User.username   (someone replied)
+          If no replies on that thread yet, fall back to:
+            Thread.author_id → User.username     (thread author = last poster)
+          If no threads at all, last_poster_username is None.
+        """
+        LastThread = aliased(Thread)
+        LastReply = aliased(Reply)
+        ReplyAuthor = aliased(User)
+        ThreadAuthor = aliased(User)
+
+        query = (
+            select(
+                Topic.topic_id,
+                Topic.group_id,
+                Topic.name,
+                Topic.description,
+                Topic.icon_url,
+                Topic.display_order,
+                Topic.thread_count,
+                Topic.reply_count,
+                Topic.is_locked,
+                Topic.last_activity_at,
+                Topic.last_thread_id,
+                # Prefer the reply author; fall back to the thread author
+                func.coalesce(
+                    ReplyAuthor.username,
+                    ThreadAuthor.username,
+                ).label("last_poster_username"),
+            )
+            .outerjoin(LastThread, LastThread.thread_id == Topic.last_thread_id)
+            .outerjoin(LastReply, LastReply.reply_id == LastThread.last_activity)
+            .outerjoin(ReplyAuthor, ReplyAuthor.user_id == LastReply.author_id)
+            .outerjoin(ThreadAuthor, ThreadAuthor.user_id == LastThread.author_id)
+            .order_by(Topic.group_id, Topic.display_order)
+        )
+
         if group_id:
             query = query.where(Topic.group_id == group_id)
-        result = await session.exec(query)
-        return result.all()
+
+        rows = (await session.exec(query)).all()
+
+        return [
+            TopicRead(
+                topic_id=r.topic_id,
+                group_id=r.group_id,
+                name=r.name,
+                description=r.description,
+                icon_url=r.icon_url,
+                display_order=r.display_order,
+                thread_count=r.thread_count,
+                reply_count=r.reply_count,
+                is_locked=r.is_locked,
+                last_activity_at=r.last_activity_at,
+                last_thread_id=r.last_thread_id,
+                last_poster_username=r.last_poster_username,
+            )
+            for r in rows
+        ]
 
     async def get_topic(self, topic_id: UUID, session: AsyncSession) -> TopicRead:
         return await session.get(Topic, topic_id)
@@ -136,7 +194,7 @@ class ForumService:
                 Thread.thread_id,
                 Thread.topic_id,
                 Thread.author_id,
-                User.username,
+                User.username.label("author_username"),
                 Thread.title,
                 Thread.body,
                 Thread.created_at,
@@ -160,7 +218,7 @@ class ForumService:
             thread_id=row.thread_id,
             topic_id=row.topic_id,
             author_id=row.author_id,
-            author_username=row.username,
+            author_username=row.author_username,
             title=row.title,
             body=row.body,
             created_at=row.created_at,
