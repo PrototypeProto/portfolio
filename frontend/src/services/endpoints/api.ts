@@ -23,8 +23,9 @@ export const API = {
     deleteFile: (filename: string) => `${MEDIA_URL}/file/${filename}`,
   },
   admin: {
-    promoteToUser:        (username: string)         => `${ADMIN_URL}/${username}/promotion/user`,
-    updateUserPermission: (username: string, role: Role) => `${ADMIN_URL}/${username}/promotion/${role}`,
+    promoteToUser:        (username: string)              => `${ADMIN_URL}/${username}/promotion/user`,
+    updateUserPermission: (username: string, role: Role)  => `${ADMIN_URL}/${username}/promotion/${role}`,
+    rejectUser:           (username: string)              => `${ADMIN_URL}/${username}/rejection`,
     allUsers:             `${ADMIN_URL}/all_users`,
     allUnapprovedUsers:   `${ADMIN_URL}/unapproved/users`,
   },

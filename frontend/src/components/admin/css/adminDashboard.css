@@ -144,3 +144,129 @@
   color: var(--text-subtle);
   letter-spacing: 0.04em;
 }
+/* ── user list ──────────────────────────────────────────── */
+.admin-user-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.admin-user-row {
+  border-bottom: 1px solid var(--border);
+}
+
+.admin-user-row:last-child {
+  border-bottom: none;
+}
+
+.admin-user-row__main {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 0;
+  cursor: pointer;
+  flex-wrap: wrap;
+}
+
+.admin-user-row__name {
+  font-size: 0.8rem;
+  color: var(--text);
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.admin-user-row__nick {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.admin-user-row__date {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.admin-user-row__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-user-row__detail {
+  padding: 8px 0 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  letter-spacing: 0.03em;
+  border-top: 1px solid var(--border);
+}
+
+/* ── action buttons ─────────────────────────────────────── */
+.admin-action-btn {
+  background: none;
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  color: var(--text-muted);
+}
+
+.admin-action-btn--approve:hover {
+  background: rgba(100, 200, 100, 0.08);
+  border-color: #4a7a4a;
+  color: #7ec87e;
+}
+
+.admin-action-btn--reject:hover {
+  background: rgba(200, 80, 80, 0.08);
+  border-color: #7a3a3a;
+  color: #c87e7e;
+}
+
+/* ── role badge ─────────────────────────────────────────── */
+.admin-role-badge {
+  font-size: 0.62rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  padding: 2px 7px;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+}
+
+.admin-role-badge--admin  { border-color: #c9b99a; color: #c9b99a; }
+.admin-role-badge--vip    { border-color: #9ab8c9; color: #9ab8c9; }
+.admin-role-badge--user   { border-color: var(--border); }
+
+/* ── role select ────────────────────────────────────────── */
+.admin-role-select {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.06em;
+  padding: 4px 8px;
+  cursor: pointer;
+  outline: none;
+  transition: border-color var(--transition);
+}
+
+.admin-role-select:focus {
+  border-color: var(--border-focus);
+}
+
+/* ── messages ───────────────────────────────────────────── */
+.admin-msg {
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+}
+
+.admin-msg--error   { border-color: #7a3a3a; color: #c87e7e; }
+.admin-msg--success { border-color: #4a7a4a; color: #7ec87e; }

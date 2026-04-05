@@ -74,6 +74,7 @@ export function useThreadPage(threadId: string): UseThreadPageResult {
         return;
       }
       setThread(res.data);
+      setThreadVote(res.data.user_vote ?? null);
       setLoading(false);
     }
     fetchThread();

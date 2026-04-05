@@ -57,6 +57,9 @@ export interface ThreadRead {
   upvote_count: number
   downvote_count: number
   last_activity_at: string | null
+  // The requesting user's current vote on this thread.
+  // true = upvoted, false = downvoted, null = no vote.
+  user_vote: boolean | null
 }
 
 export interface ReplyRead {
