@@ -1,6 +1,6 @@
 services: 
 
-  backend:
+  pgsql-db:
     container_name: portfolio-db
     image: postgres:18.1
     shm_size: 1024mb
@@ -20,6 +20,20 @@ services:
     ports:
       - "127.0.0.1:6379:6379" # bind to Host Machine
       # - 6379:6379 # bind to 0.0.0.0
+
+  server-py:
+    container_name: server-py
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./backend:/server
+    env_file:
+      - ./backend/.env
+    depends_on:
+      - pgsql-db
 
   frontend:
     container_name: portfolio-fe
