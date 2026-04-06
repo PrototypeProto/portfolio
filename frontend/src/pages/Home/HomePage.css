@@ -17,7 +17,7 @@
   text-align: center;
   padding: 4rem 2rem;
   gap: 1.5rem;
-  background-image: url('/frontend/public/assets/bg.png');
+  background-image: url('/frontend/src/assets/bg.png');
   background-size:cover;
   background-position: center;
   background-repeat: no-repeat;
