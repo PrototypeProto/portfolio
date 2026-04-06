@@ -216,3 +216,43 @@ class RejectedUserRead(SQLModel):
     join_date: date
     request: Optional[str]
     rejected_date: date
+ 
+ 
+# # # # # # # # # #
+# TempFS
+# # # # # # # # # #
+class TempFileRead(SQLModel):
+    file_id: UUID
+    original_filename: str
+    mime_type: str
+    original_size: int
+    stored_size: int
+    is_compressed: bool
+    download_permission: str
+    created_at: datetime
+    expires_at: datetime
+ 
+ 
+class TempFileUploadResponse(SQLModel):
+    file_id: UUID
+    original_filename: str
+    original_size: int
+    stored_size: int
+    is_compressed: bool
+    expires_at: datetime
+    download_permission: str
+    used_bytes: int       # caller's total storage used after this upload
+    remaining_bytes: int  # bytes remaining of their 5GB quota
+ 
+ 
+class StorageStatusRead(SQLModel):
+    used_bytes: int
+    remaining_bytes: int
+    quota_bytes: int
+ 
+ 
+class TempFileCreate(SQLModel):
+    download_permission: str = "public"
+    password: Optional[str] = None          # plaintext; hashed server-side
+    lifetime_seconds: int = 3600            # 1hr min, 604800 (1 week) max
+    compress: bool = True

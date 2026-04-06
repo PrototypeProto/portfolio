@@ -537,3 +537,142 @@ class ReplyVote(SQLModel, table=True):
 """##################################
     NOTE: END FORUM DATA 
 ##################################"""
+
+"""##################################
+    NOTE: START TEMPFS DATA 
+##################################"""
+ 
+ 
+class TempFile(SQLModel, table=True):
+    """
+    Metadata for a temporarily stored file.
+    The file itself lives on disk at {TEMPFS_DIR}/{file_id} (no extension).
+    Compression state is tracked so the correct bytes are served on download.
+    """
+ 
+    __tablename__ = "temp_file"
+ 
+    file_id: Optional[UUID] = Field(
+        sa_column=Column(
+            postgres.UUID,
+            primary_key=True,
+            server_default=func.gen_random_uuid(),
+            nullable=False,
+        ),
+        default=None,
+    )
+    uploader_id: UUID = Field(foreign_key="user_id.id", nullable=False)
+ 
+    original_filename: str = Field(
+        sa_column=Column(postgres.VARCHAR, nullable=False),
+        max_length=255,
+    )
+    mime_type: str = Field(
+        sa_column=Column(postgres.VARCHAR, nullable=False),
+        max_length=127,
+    )
+    original_size: int = Field(
+        sa_column=Column(postgres.BIGINT, nullable=False)
+    )  # bytes before compression
+    stored_size: int = Field(
+        sa_column=Column(postgres.BIGINT, nullable=False)
+    )  # bytes on disk
+    is_compressed: bool = Field(
+        sa_column=Column(postgres.BOOLEAN, nullable=False, server_default="false"),
+        default=False,
+    )
+ 
+    download_permission: DownloadPermission = Field(
+        sa_column=Column(
+            SAEnum(
+                DownloadPermission,
+                name="download_permission_enum",
+                create_type=True,
+                values_callable=lambda x: [e.value for e in x],
+            ),
+            nullable=False,
+        )
+    )
+    password_hash: Optional[str] = Field(
+        sa_column=Column(postgres.VARCHAR, nullable=True),
+        default=None,
+        exclude=True,
+    )  # only set when download_permission == PASSWORD
+ 
+    created_at: Optional[datetime] = Field(
+        sa_column=Column(
+            postgres.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+        ),
+        default=None,
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=False, index=True)
+    )
+ 
+ 
+class ExpiredFile(SQLModel, table=True):
+    """
+    Audit log of deleted temp files. Mirrors TempFile exactly plus deleted_at.
+    Rows are inserted here by the cleanup scheduler at the moment of deletion.
+    The file on disk is gone; this row exists purely for logging.
+    """
+ 
+    __tablename__ = "expired_file"
+ 
+    file_id: UUID = Field(
+        sa_column=Column(postgres.UUID, primary_key=True, nullable=False)
+    )
+    uploader_id: UUID = Field(foreign_key="user_id.id", nullable=False)
+ 
+    original_filename: str = Field(
+        sa_column=Column(postgres.VARCHAR, nullable=False),
+        max_length=255,
+    )
+    mime_type: str = Field(
+        sa_column=Column(postgres.VARCHAR, nullable=False),
+        max_length=127,
+    )
+    original_size: int = Field(sa_column=Column(postgres.BIGINT, nullable=False))
+    stored_size: int = Field(sa_column=Column(postgres.BIGINT, nullable=False))
+    is_compressed: bool = Field(
+        sa_column=Column(postgres.BOOLEAN, nullable=False, server_default="false"),
+        default=False,
+    )
+    download_permission: DownloadPermission = Field(
+        sa_column=Column(
+            SAEnum(
+                DownloadPermission,
+                name="download_permission_enum",
+                create_type=False,  # enum already created by TempFile
+                values_callable=lambda x: [e.value for e in x],
+            ),
+            nullable=False,
+        )
+    )
+    password_hash: Optional[str] = Field(
+        sa_column=Column(postgres.VARCHAR, nullable=True),
+        default=None,
+        exclude=True,
+    )
+    created_at: Optional[datetime] = Field(
+        sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=True),
+        default=None,
+    )
+    expires_at: datetime = Field(
+        sa_column=Column(postgres.TIMESTAMP(timezone=True), nullable=False)
+    )
+    deleted_at: Optional[datetime] = Field(
+        sa_column=Column(
+            postgres.TIMESTAMP(timezone=True),
+            nullable=False,
+            server_default=func.now(),
+        ),
+        default=None,
+    )
+ 
+ 
+"""##################################
+    NOTE: END TEMPFS DATA 
+##################################"""

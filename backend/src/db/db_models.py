@@ -19,6 +19,11 @@ class MemberRoleEnum(str, Enum):
     VIP = "vip"
     USER = "user"
 
+class DownloadPermission(str, Enum):
+    PUBLIC   = "public"    # anyone with the link, no auth required
+    SELF     = "self"      # uploader only
+    PASSWORD = "password"  # anyone with the correct password
+
 
 class ReactionEmoji(str, Enum):
     LIKE        = "👍"
