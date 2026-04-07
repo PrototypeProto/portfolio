@@ -57,6 +57,14 @@ async def get_users(
         status_code=status.HTTP_404_NOT_FOUND, detail="failed to verify status"
     )
 
+@router.get("/users/stats", response_model=UserStats)
+async def get_users(
+    session: SessionDependency,
+    token_details: dict = access_token_bearer,
+):
+    if not await admin_service.verify_admin(token_details, session):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions")
+    return await admin_service.get_user_stats(session)
 
 @router.patch("/users/{username}/{role}")
 async def update_user_role(

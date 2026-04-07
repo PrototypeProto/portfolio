@@ -19,22 +19,26 @@ class MemberRoleEnum(str, Enum):
     VIP = "vip"
     USER = "user"
 
+class UserTypeEnum(str, Enum):
+    VERIFIED = 'verified'
+    PENDING = 'pending'
+
 class DownloadPermission(str, Enum):
     PUBLIC   = "public"    # anyone with the link, no auth required
     SELF     = "self"      # uploader only
     PASSWORD = "password"  # anyone with the correct password
 
 
-class ReactionEmoji(str, Enum):
-    LIKE        = "👍"
-    DISLIKE     = "👎"
-    LAUGH       = "😂"
-    HEART       = "❤️"
-    FIRE        = "🔥"
+# class ReactionEmoji(str, Enum):
+#     LIKE        = "👍"
+#     DISLIKE     = "👎"
+#     LAUGH       = "😂"
+#     HEART       = "❤️"
+#     FIRE        = "🔥"
 
-class AttachmentType(str, Enum):
-    IMAGE       = "image"
-    HYPERLINK   = "hyperlink"
+# class AttachmentType(str, Enum):
+#     IMAGE       = "image"
+#     HYPERLINK   = "hyperlink"
 
 
 """
@@ -55,6 +59,7 @@ class RegisterUserModel(UserBaseModel):
 
 class UserDataModel(UserBaseModel):
     user_id: UUID
+    role: Optional[MemberRoleEnum] = None
 
 
 class LoginUserModel(SQLModel):
@@ -65,6 +70,8 @@ class VerifyUserModel(SQLModel):
     verified_date: date
     last_login_date: date
     role: MemberRoleEnum
+
+
 
 
 """##################################

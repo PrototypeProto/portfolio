@@ -13,10 +13,10 @@ redis_user = redis.Redis(
 )
 
 
-async def add_registered_user(username: str, is_member: bool = True) -> None:
+async def add_registered_user(username: str, role: MemberRoleEnum = MemberRoleEnum.USER) -> None:
     await redis_user.set(
         name=username,
-        value="1",
+        value=role.encode(),
         ex=USER_EXPIRY
     )
 

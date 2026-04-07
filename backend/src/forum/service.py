@@ -27,7 +27,7 @@ class ForumService:
         return result.all()
 
     async def retrieve_topics(
-        self, group_id: Optional[UUID], session: AsyncSession
+        self, session: AsyncSession
     ) -> list[TopicRead]:
         """
         Returns all topics with last_poster_username resolved.
@@ -70,9 +70,6 @@ class ForumService:
             .order_by(Topic.group_id, Topic.display_order)
         )
 
-        if group_id:
-            query = query.where(Topic.group_id == group_id)
-
         rows = (await session.exec(query)).all()
 
         return [
@@ -107,11 +104,10 @@ class ForumService:
         Returns a paginated list of ThreadListItem with author_username and
         last_reply_username resolved via JOINs.
 
-        Pinned threads (non-expired) are always surfaced on page 1 only.
+        Pinned threads (non-expired) are prioritized first.
         The `last_reply_username` is pulled from the reply referenced by
         Thread.last_activity (last_reply_id FK).
         """
-        # sort: str,
         AuthorUser = aliased(User)
         LastReplyAuthor = aliased(User)
  
@@ -127,13 +123,6 @@ class ForumService:
         )
         total = count_result.one()
  
-        # Sort order: pinned first (page 1 only handled at route level),
-        # then by the chosen sort within the page
-        # if sort == "top":
-        #     sort_cols = [Thread.is_pinned.desc(), Thread.upvote_count.desc()]
-        # elif sort == "oldest":
-        #     sort_cols = [Thread.is_pinned.desc(), Thread.created_at.asc()]
-        # else:  # latest / default
         sort_cols = [Thread.is_pinned.desc(), Thread.last_activity_at.desc().nulls_last()]
  
         rows = (await session.exec(

@@ -3,6 +3,7 @@ from uuid import UUID
 from typing import Optional
 from src.db.db_models import MemberRoleEnum
 from datetime import date, datetime, time
+from pydantic import BaseModel
 
 
 class UserRead(SQLModel):
@@ -26,6 +27,11 @@ class PendingUserRead(SQLModel):
     join_date: date
     request: Optional[str]
 
+class UserStats(BaseModel):
+    unverified: int = 0
+    user: int = 0
+    vip: int = 0
+    admins: int = 0
 
 # # # # # # # # # #
 # Topics
@@ -231,8 +237,8 @@ class TempFileRead(SQLModel):
     download_permission: str
     created_at: datetime
     expires_at: datetime
- 
- 
+
+
 class TempFileUploadResponse(SQLModel):
     file_id: UUID
     original_filename: str
@@ -243,16 +249,32 @@ class TempFileUploadResponse(SQLModel):
     download_permission: str
     used_bytes: int       # caller's total storage used after this upload
     remaining_bytes: int  # bytes remaining of their 5GB quota
- 
- 
+
+
 class StorageStatusRead(SQLModel):
     used_bytes: int
     remaining_bytes: int
     quota_bytes: int
- 
- 
+
+
 class TempFileCreate(SQLModel):
     download_permission: str = "public"
     password: Optional[str] = None          # plaintext; hashed server-side
     lifetime_seconds: int = 3600            # 1hr min, 604800 (1 week) max
     compress: bool = True
+
+
+class TempFilePublicInfo(SQLModel):
+    """
+    Public metadata about a temp file — returned without auth.
+    Does NOT include uploader info or password hash.
+    Returns None fields if file is not found / expired (caller gets 404).
+    """
+    file_id: UUID
+    original_filename: str
+    original_size: int
+    stored_size: int
+    is_compressed: bool
+    download_permission: str
+    expires_at: datetime
+    requires_password: bool   # True when permission == PASSWORD

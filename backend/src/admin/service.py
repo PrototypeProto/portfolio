@@ -28,7 +28,9 @@ class AdminService:
     # # # # # # # # # # # # # # # # # # # # # # # #
     async def get_pending_users(self, session: AsyncSession) -> List[PendingUserRead]:
         """Returns full detail of all pending users for the admin approval view."""
-        result = await session.exec(select(PendingUser).order_by(PendingUser.join_date.asc()))
+        result = await session.exec(
+            select(PendingUser).order_by(PendingUser.join_date.asc())
+        )
         rows = result.all()
         return [
             PendingUserRead(
@@ -56,11 +58,9 @@ class AdminService:
         result = await session.exec(query)
         return result.all()
 
-    async def approve_pending_user(
-        self, username: str, session: AsyncSession
-    ) -> User:
-        pending_user: PendingUser = (
-            await auth_service.get_pending_user_with_username(username, session)
+    async def approve_pending_user(self, username: str, session: AsyncSession) -> User:
+        pending_user: PendingUser = await auth_service.get_pending_user_with_username(
+            username, session
         )
         if pending_user is None:
             return None
@@ -92,10 +92,8 @@ class AdminService:
         Copies the pending_user row to rejected_user, then deletes the pending_user entry.
         Returns the created RejectedUser record.
         """
-        pending_user: PendingUser = (
-            await auth_service.get_pending_user_with_username(
-                username, session
-            )
+        pending_user: PendingUser = await auth_service.get_pending_user_with_username(
+            username, session
         )
         if pending_user is None:
             return None
@@ -111,9 +109,7 @@ class AdminService:
             rejected_date=date.today(),
         )
 
-        stmt = delete(PendingUser).where(
-            PendingUser.user_id == pending_user.user_id
-        )
+        stmt = delete(PendingUser).where(PendingUser.user_id == pending_user.user_id)
         res = await session.exec(stmt)
 
         if res.rowcount == 0:
@@ -134,6 +130,32 @@ class AdminService:
             rejected_date=rejected.rejected_date,
         )
 
+    async def get_user_stats(self, session: AsyncSession) -> UserStats:
+        # Count verified users grouped by role in one query
+        role_counts = (
+            await session.exec(
+                select(User.role, func.count(User.user_id).label("cnt")).group_by(
+                    User.role
+                )
+            )
+        ).all()
+
+        # Count pending users
+        pending_count = (
+            await session.exec(select(func.count(PendingUser.user_id)))
+        ).one()
+
+        stats = UserStats(pending=pending_count)
+        for role, count in role_counts:
+            if role == MemberRoleEnum.USER:
+                stats.user = count
+            elif role == MemberRoleEnum.VIP:
+                stats.vip = count
+            elif role == MemberRoleEnum.ADMIN:
+                stats.admin = count
+
+        return stats
+
     # # # # # # # # # # # # # # # # # # # # # # # #
     # Validation Methods
     # # # # # # # # # # # # # # # # # # # # # # # #
@@ -153,9 +175,9 @@ class AdminService:
         if user is None:
             return False
 
-        await add_registered_user(username)
+        await add_registered_user(user.username, user.role)
         return True
-    
+
     async def is_user_admin(self, username: str, session: AsyncSession) -> bool:
         """
         Query redis first then db
@@ -179,8 +201,10 @@ class AdminService:
         if not token_details or not token_details.get("user"):
             return False
 
-        if not await self.is_verified_user(token_details.get('user').get('username'), session):
-            return False # TODO: return Exception/Error (later when creating custom errors)
+        if not await self.is_verified_user(
+            token_details.get("user").get("username"), session
+        ):
+            return False  # TODO: return Exception/Error (later when creating custom errors)
 
         # Check if user is authorized to exec admin priv
         if not await self.is_user_admin(
@@ -189,5 +213,3 @@ class AdminService:
             return False
             # raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid permission to access requested resources")
         return True
-
-    

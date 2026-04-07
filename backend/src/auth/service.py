@@ -86,10 +86,10 @@ class AuthService:
             return True
 
         user = await self.get_user_with_username(username, session)
-        if user is None:
+        if not user:
             return False
 
-        await add_registered_user(username)
+        await add_registered_user(user.username, user.role)
         return True
 
     # # # # # # # # # # # # # # # # # # # #
