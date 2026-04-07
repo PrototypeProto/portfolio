@@ -85,7 +85,7 @@ class AuthService:
         if exists:
             return True
 
-        user = await self.get_username_from_user_table(username, session)
+        user = await self.get_user_with_username(username, session)
         if user is None:
             return False
 
@@ -98,16 +98,16 @@ class AuthService:
     async def username_exists(
         self, username: str, session: AsyncSession
     ) -> LoginResultEnum:
-        if await self.get_username_from_user_table(username, session) is not None:
+        if await self.get_user_with_username(username, session) is not None:
             return LoginResultEnum.VALID
-        elif await self.get_username_from_user_pending_table(username, session):
+        elif await self.get_pending_user_with_username(username, session):
             return LoginResultEnum.PENDING
         return LoginResultEnum.DNE
 
     async def email_exists(self, email: str, session: AsyncSession) -> LoginResultEnum:
-        if await self.get_email_from_user_table(email, session) is not None:
+        if await self.get_user_with_email(email, session) is not None:
             return LoginResultEnum.VALID
-        elif await self.get_email_from_user_pending_table(email, session) is not None:
+        elif await self.get_pending_user_with_email(email, session) is not None:
             return LoginResultEnum.PENDING
         return LoginResultEnum.DNE
 
@@ -121,28 +121,28 @@ class AuthService:
     # # # # # # # # # # # # # # # # # # # #
     #   Helper methods
     # # # # # # # # # # # # # # # # # # # #
-    async def get_username_from_user_table(
+    async def get_user_with_username(
         self, username: str, session: AsyncSession
     ) -> User:
         statement = select(User).where(User.username == username)
         result = await session.exec(statement)
         return result.first()
 
-    async def get_username_from_user_pending_table(
+    async def get_pending_user_with_username(
         self, username: str, session: AsyncSession
     ) -> PendingUser:
         statement = select(PendingUser).where(PendingUser.username == username)
         result = await session.exec(statement)
         return result.first()
 
-    async def get_email_from_user_table(
+    async def get_user_with_email(
         self, email: str, session: AsyncSession
     ) -> User:
         statement = select(User).where(User.email == email)
         result = await session.exec(statement)
         return result.first()
 
-    async def get_email_from_user_pending_table(
+    async def get_pending_user_with_email(
         self, email: str, session: AsyncSession
     ) -> PendingUser:
         statement = select(PendingUser).where(PendingUser.email == email)

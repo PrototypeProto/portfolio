@@ -45,7 +45,7 @@ class AdminService:
     async def update_user_role(
         self, username: str, role: MemberRoleEnum, session: AsyncSession
     ) -> User:
-        user: User = await auth_service.get_username_from_user_table(username, session)
+        user: User = await auth_service.get_user_with_username(username, session)
         user.role = role.value
         await session.commit()
         await session.refresh(user)
@@ -60,7 +60,7 @@ class AdminService:
         self, username: str, session: AsyncSession
     ) -> User:
         pending_user: PendingUser = (
-            await auth_service.get_username_from_user_pending_table(username, session)
+            await auth_service.get_pending_user_with_username(username, session)
         )
         if pending_user is None:
             return None
@@ -93,7 +93,7 @@ class AdminService:
         Returns the created RejectedUser record.
         """
         pending_user: PendingUser = (
-            await auth_service.get_username_from_user_pending_table(
+            await auth_service.get_pending_user_with_username(
                 username, session
             )
         )
@@ -149,7 +149,7 @@ class AdminService:
         if exists:
             return True
 
-        user = await auth_service.get_username_from_user_table(username, session)
+        user = await auth_service.get_user_with_username(username, session)
         if user is None:
             return False
 

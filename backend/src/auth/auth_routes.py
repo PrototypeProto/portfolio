@@ -75,9 +75,9 @@ async def login_user(
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
 
-    user = await auth_service.get_username_from_user_table(login_data.username, session)
+    user = await auth_service.get_user_with_username(login_data.username, session)
     if user is None:
-        user1 = await auth_service.get_username_from_user_pending_table(
+        user1 = await auth_service.get_pending_user_with_username(
             login_data.username, session
         )
         if user1 is not None:
