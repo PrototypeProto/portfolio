@@ -42,7 +42,7 @@ class AdminService:
             for r in rows
         ]
 
-    async def update_user_privilege(
+    async def update_user_role(
         self, username: str, role: MemberRoleEnum, session: AsyncSession
     ) -> User:
         user: User = await auth_service.get_username_from_user_table(username, session)
@@ -51,12 +51,12 @@ class AdminService:
         await session.refresh(user)
         return user
 
-    async def get_all_users(self, session: AsyncSession) -> List[User]:
+    async def get_users(self, session: AsyncSession) -> List[User]:
         query = select(User).order_by(desc(User.join_date))
         result = await session.exec(query)
         return result.all()
 
-    async def promote_pending_to_user(
+    async def approve_pending_user(
         self, username: str, session: AsyncSession
     ) -> User:
         pending_user: PendingUser = (
@@ -137,29 +137,14 @@ class AdminService:
     # # # # # # # # # # # # # # # # # # # # # # # #
     # Validation Methods
     # # # # # # # # # # # # # # # # # # # # # # # #
-    async def verify_admin(self, token_details: dict, session: AsyncSession) -> bool:
-        # check if current user is admin
-        if token_details is None or token_details.get("user") is None:
-            return False
-
-        print(token_details)
-
-        if not await self.is_verified_user(token_details.get('user').get('username'), session):
-            return False # TODO: return Exception/Error (later when creating custom errors)
-        print("stop")
-        # Check if user is authorized to exec admin priv
-        if not await self.is_user_admin(
-            token_details.get("user").get("username"), session
-        ):
-            return False
-            # raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid permission to access requested resources")
-        return True
-
-    async def is_verified_user(self, username: str, session: AsyncSession):
+    async def is_verified_user(self, username: str, session: AsyncSession) -> bool:
         """
         Checks redis for a User w/ `username`, else repopulates caches and returns answer from DB
         Useful as a user exists method
         """
+        if not username:
+            return False
+
         exists = await get_user(username)
         if exists:
             return True
@@ -170,21 +155,39 @@ class AdminService:
 
         await add_registered_user(username)
         return True
-
+    
     async def is_user_admin(self, username: str, session: AsyncSession) -> bool:
         """
         Query redis first then db
         """
-        if username is None:
+        if not username:
             return False
 
         role = await get_user_role(username)
-        if role is MemberRoleEnum.ADMIN:
+        if role == MemberRoleEnum.ADMIN:
             return True
 
-        if role is None:  # redis cache is empty, must fill it and query pgsql
+        if not role:  # redis cache is empty, must fill it and query pgsql
             query = select(User.role).where(User.username == username)
             res = await session.exec(query)
             role = res.first()
             await set_user_role(username, role)  # update redis value
             return role == MemberRoleEnum.ADMIN
+
+    async def verify_admin(self, token_details: dict, session: AsyncSession) -> bool:
+        # check if current user is admin
+        if not token_details or not token_details.get("user"):
+            return False
+
+        if not await self.is_verified_user(token_details.get('user').get('username'), session):
+            return False # TODO: return Exception/Error (later when creating custom errors)
+
+        # Check if user is authorized to exec admin priv
+        if not await self.is_user_admin(
+            token_details.get("user").get("username"), session
+        ):
+            return False
+            # raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid permission to access requested resources")
+        return True
+
+    
