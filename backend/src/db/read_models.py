@@ -1,10 +1,10 @@
 from sqlmodel import SQLModel, Field, Column
 from uuid import UUID
 from typing import Optional
-from src.db.db_models import MemberRoleEnum
+from src.db.db_models import MemberRoleEnum, DownloadPermission
 from datetime import date, datetime, time
 from pydantic import BaseModel
-
+from pathlib import Path
 
 class UserRead(SQLModel):
     user_id: UUID
@@ -254,13 +254,13 @@ class TempFileUploadResponse(SQLModel):
 class StorageStatusRead(SQLModel):
     used_bytes: int
     remaining_bytes: int
-    quota_bytes: int
+    storage_cap_bytes: int
 
 
 class TempFileCreate(SQLModel):
-    download_permission: str = "public"
+    download_permission: DownloadPermission = DownloadPermission.PUBLIC
     password: Optional[str] = None          # plaintext; hashed server-side
-    lifetime_seconds: int = 3600            # 1hr min, 604800 (1 week) max
+    lifetime_seconds: int = Field(default=3600, ge=1800, le=604800)            # 1hr min, 604800 (1 week) max
     compress: bool = True
 
 
@@ -278,3 +278,9 @@ class TempFilePublicInfo(SQLModel):
     download_permission: str
     expires_at: datetime
     requires_password: bool   # True when permission == PASSWORD
+
+class FileReadModel(SQLModel):
+    disk_path: Path
+    original_filename: str
+    mime_type: str
+    is_compressed: bool
