@@ -13,16 +13,22 @@ redis_user = redis.Redis(
 )
 
 
-async def add_registered_user(username: str, role: MemberRoleEnum = MemberRoleEnum.USER) -> None:
+async def add_registered_user(username: str, role: MemberRoleEnum) -> None:
     await redis_user.set(
         name=username,
-        value=role.encode(),
+        value=role.value,
         ex=USER_EXPIRY
     )
 
 async def get_user(username: str) -> MemberRoleEnum | None:
-    role:bytes = await redis_user.get(username)
-    return None if role is None else role.decode()
+    role = await redis_user.get(username)
+    if role is None:
+        return None
+
+    try:
+        return MemberRoleEnum(role.decode())
+    except:
+        raise Exception("Failed to decode role")
 
 async def remove_user(username: str) -> None:
     await redis_user.delete(username)

@@ -24,6 +24,7 @@ from src.db.db_models import (
 from .schemas import AccessTokenUserData, LoginResultEnum
 from uuid import UUID
 from src.db.models import User, PendingUser
+from src.db.users_redis import get_user, add_registered_user, remove_user
 
 
 REFRESH_TOKEN_EXPIRY_DAYS = 2
@@ -101,7 +102,11 @@ async def login_user(
     if verify_passwd(login_data.password, user.password_hash):
         access_token, refresh_token = auth_service.generate_tokens(data_dict)
         if access_token is not None and refresh_token is not None:
-            # NOTE: Maybe do a redis check here
+            # Ensure user is cached in mem
+            exists = await get_user(user.username)
+            if not exists:
+                await add_registered_user(user.username, user.role)
+
             response.set_cookie(
                 key="access_token",
                 value=access_token,
