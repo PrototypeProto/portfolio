@@ -34,8 +34,10 @@ from src.tempfs.logger import (
     log_download_ok,
     log_download_fail,
     log_delete_ok,
-    log_delete_fail,
+    log_manual_delete_fail,
     log_expire,
+    log_cleanup_delete_fail,
+    log_cleanup_delete_ok,
 )
 from src.db.users_redis import get_user
 
@@ -43,12 +45,13 @@ TEMPFS_DIR = Path(Config.TEMPFS_DIR)
 TOTAL_SHARED_BYTES = 200 * 1024 ** 3          # 200 GB global quota
 USER_QUOTA_BYTES = 5 * 1024 ** 3          # 5 GB per-user quota
 MAX_LIFETIME = 7 * 24 * 3600         # 1 week in seconds
-MIN_LIFETIME = 3600                   # 1 hour in seconds
+MIN_LIFETIME = 600                   # 30 min in seconds
 MAX_FILE_SIZE = 2 * 1024 ** 3        # 2 GB per file
 CHUNK = 1024 * 1024                  # 1 MB read chunks
 
 
 def _file_path(file_id: UUID) -> Path:
+    print(TEMPFS_DIR)
     return TEMPFS_DIR / str(file_id)
 
 
@@ -295,11 +298,11 @@ class TempFSService:
     ) -> None:
         record = await session.get(TempFile, file_id)
         if not record:
-            log_delete_fail(username, str(file_id), "not_found")
+            log_manual_delete_fail(username, str(file_id), "not_found")
             raise ValueError("not_found")
 
         if not is_admin and record.uploader_id != requester_id:
-            log_delete_fail(username, str(file_id), "permission_denied")
+            log_manual_delete_fail(username, str(file_id), "permission_denied")
             raise ValueError("permission_denied")
 
         await self._move_to_expired(record, session)
@@ -336,10 +339,19 @@ class TempFSService:
         leaves an orphan row in temp_file (recoverable) rather than a dangling DB row.
         """
         disk_path = _file_path(record.file_id)
+        print(disk_path)
         try:
             disk_path.unlink(missing_ok=True)
-        except OSError:
+            if disk_path.exists():
+                raise Exception("deleted file still exists")
+            log_cleanup_delete_ok(record.file_id)
+        except OSError as e:
+            log_cleanup_delete_fail(record.file_id, e)
             pass  # already gone; still archive the metadata
+        except Exception as e:
+            log_cleanup_delete_fail(record.file_id, e)
+            pass  # already gone; still archive the metadata
+            
 
         expired = ExpiredFile(
             file_id=record.file_id,

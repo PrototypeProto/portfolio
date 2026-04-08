@@ -23,8 +23,11 @@ from src.db.read_models import (
     TempFileUploadResponse,
     FileReadModel,
     TempFilePublicInfo,
+    MAX_LIFETIME,
+    MIN_LIFETIME,
+    DEFAULT_LIFETIME
 )
-from src.tempfs.service import TempFSService
+from src.tempfs.service import TempFSService, _file_path
 
 router = APIRouter(prefix="/tempfs", tags=["tempfs"])
 service = TempFSService()
@@ -43,7 +46,7 @@ async def upload_file(
     file: UploadFile = File(...),
     download_permission: DownloadPermission = Form(default=DownloadPermission.PUBLIC),
     password: Optional[str] = Form(default=None),
-    lifetime_seconds: int = Form(default=3600),
+    lifetime_seconds: int = Form(default=DEFAULT_LIFETIME, ge=MIN_LIFETIME, le=MAX_LIFETIME),
     compress: bool = Form(default=True),
     token_details: dict = access_token_bearer,
 ):
@@ -267,6 +270,9 @@ async def delete_file(
         await service.delete_file(file_id, requester_id, username, is_admin, session)
         if await service.get_public_info(file_id, session):
             raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="failed to delete file")
+        if _file_path(file_id):
+            print("failed to del file")
+            raise Exception("file not deleted")
     except ValueError as e:
         if str(e) == "not_found":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")

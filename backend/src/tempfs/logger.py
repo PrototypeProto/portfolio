@@ -91,10 +91,17 @@ def log_delete_ok(
     _write(line)
 
 
-def log_delete_fail(username: str, file_id: str, reason: str) -> None:
+def log_manual_delete_fail(username: str, file_id: str, reason: str) -> None:
     line = f"[{_now()}] DELETE FAIL | user={username} file_id={file_id} reason={reason}"
     _write(line)
 
+def log_cleanup_delete_fail(file_id: str, reason: str) -> None:
+    line = f"[{_now()}] DELETE FAIL during attempted automatic cleaning session | file_id={file_id} reason={reason}"
+    _write(line)
+
+def log_cleanup_delete_ok(file_id: str) -> None:
+    line = f"[{_now()}] DELETED {file_id} STATUS: `OK` during schedules cleaning session"
+    _write(line)
 
 def log_expire(
     file_id: str,

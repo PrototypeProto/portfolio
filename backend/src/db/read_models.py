@@ -6,6 +6,10 @@ from datetime import date, datetime, time
 from pydantic import BaseModel
 from pathlib import Path
 
+MIN_LIFETIME=600 # 10 min
+MAX_LIFETIME=604800 # 1 week
+DEFAULT_LIFETIME=1800 # 30 min
+
 class UserRead(SQLModel):
     user_id: UUID
     username: str
@@ -260,7 +264,7 @@ class StorageStatusRead(SQLModel):
 class TempFileCreate(SQLModel):
     download_permission: DownloadPermission = DownloadPermission.PUBLIC
     password: Optional[str] = None          # plaintext; hashed server-side
-    lifetime_seconds: int = Field(default=3600, ge=1800, le=604800)            # 1hr min, 604800 (1 week) max
+    lifetime_seconds: int = Field(default=DEFAULT_LIFETIME, ge=MIN_LIFETIME, le=MAX_LIFETIME)            # 10 min, 604800 (1 week) max
     compress: bool = True
 
 
