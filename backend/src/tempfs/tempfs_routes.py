@@ -129,12 +129,13 @@ async def get_storage_status(
 
 # Public file info (no auth required)
 @router.get("/info/{file_id}", response_model=TempFilePublicInfo)
-async def get_file_info(file_id: UUID, session: SessionDependency):
+async def get_file_info(file_id: UUID, session: SessionDependency, token_details: dict = optional_token_bearer):
     """
     GET /tempfs/info/{file_id}
-    Returns public metadata for the download page — no auth required.
+    Returns public metadata for the download page — no auth required IF info.download_permission is PUBLIC.
     Returns 404 if file is not found or has expired.
     Does not reveal uploader identity or password hash.
+    NOTE: Implement identity checking if not a public file
     """
     info: TempFilePublicInfo = await service.get_public_info(file_id, session)
     if not info:
