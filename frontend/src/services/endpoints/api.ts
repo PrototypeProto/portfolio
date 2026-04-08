@@ -2,47 +2,107 @@ import type { Role } from "../../types/userTypes";
 
 const BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
-const AUTH_URL  = `${BASE_URL}/auth`;
+const AUTH_URL = `${BASE_URL}/auth`;
 const MEDIA_URL = `${BASE_URL}/media`;
 const ADMIN_URL = `${BASE_URL}/admin`;
 const FORUM_URL = `${BASE_URL}/forum`;
+const TEMPFS_URL = `${BASE_URL}/tempfs`;
 
 export const API = {
   auth: {
-    signup:        `${AUTH_URL}/signup`,
-    login:         `${AUTH_URL}/login`,
-    logout:        `${AUTH_URL}/logout`,
+    // POST /auth/signup
+    signup: `${AUTH_URL}/signup`,
+    // POST /auth/login
+    login: `${AUTH_URL}/login`,
+    // POST /auth/logout
+    logout: `${AUTH_URL}/logout`,
+    // POST /auth/refresh_token
     refresh_token: `${AUTH_URL}/refresh_token`,
-    me:            `${AUTH_URL}/me`,
+    // GET  /auth/me
+    me: `${AUTH_URL}/me`,
   },
+
   media: {
-    pageCt:     `${MEDIA_URL}/pages`,
-    list:       `${MEDIA_URL}/list`,
-    getFile:    (filename: string) => `${MEDIA_URL}/${filename}`,
+    // GET  /media/list?page=1  (pagination metadata should come from this response envelope)
+    list: (page: number) => `${MEDIA_URL}/list?page=${page}`,
+    // GET  /media/{filename}
+    getFile: (filename: string) => `${MEDIA_URL}/${filename}`,
+    // POST /media/file
     uploadFile: `${MEDIA_URL}/file`,
+    // DELETE /media/file/{filename}
     deleteFile: (filename: string) => `${MEDIA_URL}/file/${filename}`,
   },
+
   admin: {
-    promoteToUser:        (username: string)              => `${ADMIN_URL}/${username}/promotion/user`,
-    updateUserPermission: (username: string, role: Role)  => `${ADMIN_URL}/${username}/promotion/${role}`,
-    rejectUser:           (username: string)              => `${ADMIN_URL}/${username}/rejection`,
-    allUsers:             `${ADMIN_URL}/all_users`,
-    allUnapprovedUsers:   `${ADMIN_URL}/unapproved/users`,
+    // GET   /admin/users?approval_status=verified|pending
+    users: (status: "verified" | "pending") =>
+      `${ADMIN_URL}/users?approval_status=${status}`,
+    // GET   /admin/users/stats
+    userStats: `${ADMIN_URL}/users/stats`,
+    // PATCH /admin/users/{username}/role  body: { role }
+    updateRole: (username: string) => `${ADMIN_URL}/users/${username}/role`,
+    // POST  /admin/users/{username}/approve
+    approveUser: (username: string) => `${ADMIN_URL}/users/${username}/approve`,
+    // POST  /admin/users/{username}/reject
+    rejectUser: (username: string) => `${ADMIN_URL}/users/${username}/reject`,
   },
+
   forum: {
-    groups:          `${FORUM_URL}/groups`,
-    topics:          `${FORUM_URL}/topics`,
-    threadsByTopic:  (topicId: string)  => `${FORUM_URL}/topics/${topicId}/threads`,
-    thread:          (threadId: string) => `${FORUM_URL}/threads/${threadId}`,
-    repliesByThread: (threadId: string) => `${FORUM_URL}/threads/${threadId}/replies`,
-    replyParent:     (replyId: string)  => `${FORUM_URL}/replies/${replyId}/parent`,
-    voteThread:      (threadId: string) => `${FORUM_URL}/threads/${threadId}/vote`,
-    voteReply:       (replyId: string)  => `${FORUM_URL}/replies/${replyId}/vote`,
-    createThread:    (topicId: string)  => `${FORUM_URL}/topics/${topicId}/threads`,
-    createReply:     (threadId: string) => `${FORUM_URL}/threads/${threadId}/replies`,
-    updateThread:    (threadId: string) => `${FORUM_URL}/threads/${threadId}`,
-    updateReply:     (replyId: string)  => `${FORUM_URL}/replies/${replyId}`,
-    deleteThread:    (threadId: string) => `${FORUM_URL}/threads/${threadId}`,
-    deleteReply:     (replyId: string)  => `${FORUM_URL}/replies/${replyId}`,
+    // GET  /forum/groups
+    groups: `${FORUM_URL}/groups`,
+    // GET  /forum/topics
+    topics: `${FORUM_URL}/topics`,
+    // GET  /forum/topics/{topicId}/threads?page=1
+    threadsByTopic: (topicId: string, page: number = 1) =>
+      `${FORUM_URL}/topics/${topicId}/threads?page=${page}`,
+    // GET  /forum/threads/{threadId}
+    thread: (threadId: string) => `${FORUM_URL}/threads/${threadId}`,
+    // POST /forum/topics/{topicId}/threads
+    createThread: (topicId: string) => `${FORUM_URL}/topics/${topicId}/threads`,
+    // PATCH /forum/threads/{threadId}
+    updateThread: (threadId: string) => `${FORUM_URL}/threads/${threadId}`,
+    // DELETE /forum/threads/{threadId}
+    deleteThread: (threadId: string) => `${FORUM_URL}/threads/${threadId}`,
+    // POST /forum/threads/{threadId}/vote
+    voteThread: (threadId: string) => `${FORUM_URL}/threads/${threadId}/vote`,
+    // GET  /forum/threads/{threadId}/replies?page=1
+    repliesByThread: (threadId: string, page: number = 1) =>
+      `${FORUM_URL}/threads/${threadId}/replies?page=${page}`,
+    // GET  /forum/replies/{replyId}/parent
+    replyParent: (replyId: string) => `${FORUM_URL}/replies/${replyId}/parent`,
+    // POST /forum/threads/{threadId}/replies
+    createReply: (threadId: string) =>
+      `${FORUM_URL}/threads/${threadId}/replies`,
+    // PATCH /forum/replies/{replyId}
+    updateReply: (replyId: string) => `${FORUM_URL}/replies/${replyId}`,
+    // DELETE /forum/replies/{replyId}
+    deleteReply: (replyId: string) => `${FORUM_URL}/replies/${replyId}`,
+    // POST /forum/replies/{replyId}/vote
+    voteReply: (replyId: string) => `${FORUM_URL}/replies/${replyId}/vote`,
+  },
+
+  tempfs: {
+    // POST /tempfs/upload
+    upload: `${TEMPFS_URL}/upload`,
+    // GET  /tempfs/files
+    files: `${TEMPFS_URL}/files`,
+    // GET  /tempfs/storage
+    storage: `${TEMPFS_URL}/storage`,
+    // GET  /tempfs/files/{fileId}
+    info: (fileId: string) => `${TEMPFS_URL}/files/${fileId}`,
+    // GET  /tempfs/files/{fileId}/content?want_compressed=false&password=...
+    download: (
+      fileId: string,
+      wantCompressed: boolean = false,
+      password?: string,
+    ) => {
+      const params = new URLSearchParams({
+        want_compressed: String(wantCompressed),
+      });
+      if (password !== undefined) params.set("password", password);
+      return `${TEMPFS_URL}/files/${fileId}/content?${params.toString()}`;
+    },
+    // DELETE /tempfs/files/{fileId}
+    delete: (fileId: string) => `${TEMPFS_URL}/files/${fileId}`,
   },
 };
