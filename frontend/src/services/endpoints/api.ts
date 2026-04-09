@@ -54,8 +54,8 @@ export const API = {
     // GET  /forum/topics
     topics: `${FORUM_URL}/topics`,
     // GET  /forum/topics/{topicId}/threads?page=1
-    threadsByTopic: (topicId: string, page: number = 1) =>
-      `${FORUM_URL}/topics/${topicId}/threads?page=${page}`,
+    threadsByTopic: (topicId: string) =>
+      `${FORUM_URL}/topics/${topicId}/threads`,
     // GET  /forum/threads/{threadId}
     thread: (threadId: string) => `${FORUM_URL}/threads/${threadId}`,
     // POST /forum/topics/{topicId}/threads
@@ -67,8 +67,8 @@ export const API = {
     // POST /forum/threads/{threadId}/vote
     voteThread: (threadId: string) => `${FORUM_URL}/threads/${threadId}/vote`,
     // GET  /forum/threads/{threadId}/replies?page=1
-    repliesByThread: (threadId: string, page: number = 1) =>
-      `${FORUM_URL}/threads/${threadId}/replies?page=${page}`,
+    repliesByThread: (threadId: string) =>
+      `${FORUM_URL}/threads/${threadId}/replies`,
     // GET  /forum/replies/{replyId}/parent
     replyParent: (replyId: string) => `${FORUM_URL}/replies/${replyId}/parent`,
     // POST /forum/threads/{threadId}/replies
