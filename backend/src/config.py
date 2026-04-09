@@ -8,8 +8,9 @@ class Settings(BaseSettings):
     DB_URL: str
     JWT_SECRET: str
     JWT_ALGORITHM: str
-    REDIS_HOST: str = "localhost"
+    REDIS_HOST: str = "redis-db"
     REDIS_PORT: int = 6379
+    REDIS_PASSWORD: str
     MEDIA_DIR: str = "shared_media"
     TEMPFS_DIR: str = "tempfs_storage"
     LOGS_DIR: str = "logs"
@@ -21,7 +22,4 @@ class Settings(BaseSettings):
         # from_attributes=True
     )
 
-try:
-    Config = Settings()
-except:
-    raise Exception("Missing enumerated .env variables")
+Config = Settings()
