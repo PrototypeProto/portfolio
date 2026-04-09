@@ -1,38 +1,34 @@
-from src.db.models import (
-    User,
-    UserID,
-    PendingUser,
-)
+from src.db.models import User, UserID, PendingUser
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel import select, desc, update, insert, delete, exists
-from datetime import date, datetime, timedelta
-from .utils import generate_passwd_hash, verify_passwd
+from sqlmodel import select, exists
+from datetime import date
 from uuid import UUID
-from typing import List
-from .utils import create_access_token, decode_token, verify_passwd
+from .utils import (
+    generate_passwd_hash,
+    verify_passwd,
+    create_access_token,
+    decode_token,
+    REFRESH_TOKEN_EXPIRY_SECONDS,
+    ACCESS_TOKEN_EXPIRY_SECONDS,
+)
 from .schemas import AccessTokenUserData, LoginResultEnum
-from src.db.db_models import MemberRoleEnum, VerifyUserModel
+from src.db.db_models import MemberRoleEnum, RegisterUserModel
 from src.db.models import PendingUser
-from src.db.users_redis import add_registered_user, get_user
-from .dependencies import access_token_bearer
-
-REFRESH_TOKEN_EXPIRY_MIN = 60 * 24  # 1 day
+from src.db.redis_client import add_registered_user, get_user, store_refresh_token
 
 
 class AuthService:
     """
-    Handles business logic (db access) for the {/auth} route
+    Handles business logic (db access) for the {/auth} route.
     """
 
-    # # # # # # # # # # # # # # # # # # # #
-    #   Feature methods
-    # # # # # # # # # # # # # # # # # # # #
+    # ------------------------------------------------------------------
+    # Registration
+    # ------------------------------------------------------------------
+
     async def register_user(
         self, data: RegisterUserModel, session: AsyncSession
     ) -> User:
-        # TODO: Parse for SQL Injection
-
-        # Create user_id then a pending_user entry
         user_id = UserID()
         session.add(user_id)
         await session.commit()
@@ -44,45 +40,61 @@ class AuthService:
             join_date=date.today(),
             user_id=user_id.id,
         )
-
         session.add(pending_user)
         await session.commit()
         await session.refresh(pending_user)
         return pending_user
 
-    def generate_tokens(self, data_dict: dict) -> tuple:
-        access_token = create_access_token(
-            user_data=data_dict,
-        )
+    # ------------------------------------------------------------------
+    # Token generation
+    # ------------------------------------------------------------------
 
+    async def generate_tokens(self, user: User) -> tuple[str, str]:
+        """
+        Issue a fresh access + refresh token pair for `user`.
+        The refresh JTI is stored in Redis so rotation and family revocation work.
+        Role is NOT embedded in the token payload.
+        """
+        data_dict = AccessTokenUserData(
+            user_id=str(user.user_id),
+            username=user.username,
+            nickname=user.nickname,
+        ).model_dump()
+
+        access_token = create_access_token(user_data=data_dict)
         refresh_token = create_access_token(
             user_data=data_dict,
+            expiry_seconds=REFRESH_TOKEN_EXPIRY_SECONDS,
             refresh=True,
-            expiry=timedelta(minutes=REFRESH_TOKEN_EXPIRY_MIN),
+        )
+
+        refresh_data = decode_token(refresh_token)
+        await store_refresh_token(
+            jti=refresh_data["jti"],
+            username=user.username,
+            ttl_seconds=REFRESH_TOKEN_EXPIRY_SECONDS,
         )
 
         return access_token, refresh_token
 
-    # # # # # # # # # # # # # # # # # # # #
-    #   Auth validation methods
-    # # # # # # # # # # # # # # # # # # # #
+    # ------------------------------------------------------------------
+    # Auth validation
+    # ------------------------------------------------------------------
+
     async def is_valid_user_token(
         self, token_details: dict, session: AsyncSession
     ) -> bool:
         """
-        Checks redis for a User w/ `username`, else repopulates caches and returns answer from DB
-        Useful as a user exists method
+        Checks redis for a User w/ `username`, else repopulates cache and checks DB.
+        Used by the optional-auth download endpoint in tempfs.
         """
-        if (
-            token_details is None
-            or token_details.get("user") is None
-            or token_details.get("user").get("username") is None
-        ):
+        if not token_details:
+            return False
+        username = (token_details.get("user") or {}).get("username")
+        if not username:
             return False
 
-        username = token_details.get("user").get("username")
-        exists = await get_user(username)
-        if exists:
+        if await get_user(username):
             return True
 
         user = await self.get_user_with_username(username, session)
@@ -92,64 +104,54 @@ class AuthService:
         await add_registered_user(user.username, user.role)
         return True
 
-    # # # # # # # # # # # # # # # # # # # #
-    #   Safety checking methods
-    # # # # # # # # # # # # # # # # # # # #
+    # ------------------------------------------------------------------
+    # Existence checks
+    # ------------------------------------------------------------------
+
     async def username_exists(
         self, username: str, session: AsyncSession
     ) -> LoginResultEnum:
         if await self.get_user_with_username(username, session) is not None:
             return LoginResultEnum.VALID
-        elif await self.get_pending_user_with_username(username, session):
+        if await self.get_pending_user_with_username(username, session):
             return LoginResultEnum.PENDING
         return LoginResultEnum.DNE
 
     async def email_exists(self, email: str, session: AsyncSession) -> LoginResultEnum:
         if await self.get_user_with_email(email, session) is not None:
             return LoginResultEnum.VALID
-        elif await self.get_pending_user_with_email(email, session) is not None:
+        if await self.get_pending_user_with_email(email, session) is not None:
             return LoginResultEnum.PENDING
         return LoginResultEnum.DNE
 
-    async def uuid_exists(
-        self, uuid: UUID, session: AsyncSession, search_user_else_unverified=True
-    ) -> bool:
-        stmt = select(exists().where(User.user_id == uuid))
-        res = await session.exec(stmt)
-        return False if res.one_or_none() is None else res.one()
+    # ------------------------------------------------------------------
+    # DB helpers
+    # ------------------------------------------------------------------
 
-    # # # # # # # # # # # # # # # # # # # #
-    #   Helper methods
-    # # # # # # # # # # # # # # # # # # # #
     async def get_user_with_username(
         self, username: str, session: AsyncSession
-    ) -> User:
-        statement = select(User).where(User.username == username)
-        result = await session.exec(statement)
-        return result.first()
+    ) -> User | None:
+        return (
+            await session.exec(select(User).where(User.username == username))
+        ).first()
 
     async def get_pending_user_with_username(
         self, username: str, session: AsyncSession
-    ) -> PendingUser:
-        statement = select(PendingUser).where(PendingUser.username == username)
-        result = await session.exec(statement)
-        return result.first()
+    ) -> PendingUser | None:
+        return (
+            await session.exec(
+                select(PendingUser).where(PendingUser.username == username)
+            )
+        ).first()
 
     async def get_user_with_email(
         self, email: str, session: AsyncSession
-    ) -> User:
-        statement = select(User).where(User.email == email)
-        result = await session.exec(statement)
-        return result.first()
+    ) -> User | None:
+        return (await session.exec(select(User).where(User.email == email))).first()
 
     async def get_pending_user_with_email(
         self, email: str, session: AsyncSession
-    ) -> PendingUser:
-        statement = select(PendingUser).where(PendingUser.email == email)
-        result = await session.exec(statement)
-        return result.first()
-
-    # # # # # # # # # # # # # # # # # # # #
-    #   Role checker methods
-    # # # # # # # # # # # # # # # # # # # #
-
+    ) -> PendingUser | None:
+        return (
+            await session.exec(select(PendingUser).where(PendingUser.email == email))
+        ).first()

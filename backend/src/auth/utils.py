@@ -6,54 +6,57 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 import logging
 
-# 3600 sec -> 60 min -> 1 hr
-ACCESS_TOKEN_EXPIRY = 4500
+# Access token: 75 minutes
+ACCESS_TOKEN_EXPIRY_SECONDS = 60 * 75
+
+# Refresh token: 24 hours
+REFRESH_TOKEN_EXPIRY_SECONDS = 60 * 60 * 24
 
 
-# Hash a password using bcrypt
-def generate_passwd_hash(password) -> str:
-    pwd_bytes = password.encode("utf-8")
-    salt = gensalt()
-    hashed_password = hashpw(pwd_bytes, salt)
-    return hashed_password.decode("utf-8")
+def generate_passwd_hash(password: str) -> str:
+    return hashpw(password.encode("utf-8"), gensalt()).decode("utf-8")
 
 
-# Check if the provided password matches the stored password (hashed)
-def verify_passwd(plain_password, hashed_password) -> bool:
+def verify_passwd(plain_password: str, hashed_password: str) -> bool:
     return checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
 
 
 def create_access_token(
-    user_data: dict, expiry: timedelta = None, refresh: bool = False
+    user_data: dict,
+    expiry_seconds: int = ACCESS_TOKEN_EXPIRY_SECONDS,
+    refresh: bool = False,
 ) -> str:
-    payload = {}
-
-    payload["user"] = user_data
-    payload["exp"] = datetime.now(timezone.utc) + (
-        expiry if expiry is not None else timedelta(minutes=ACCESS_TOKEN_EXPIRY)
-    )
-    payload["jti"] = str(uuid4())
-    # Has refresh token
-    payload["refresh"] = refresh
-
-    token = jwt.encode(
+    now = datetime.now(timezone.utc)
+    payload = {
+        "user": user_data,
+        "exp": now + timedelta(seconds=expiry_seconds),
+        "iat": now,
+        "jti": str(uuid4()),
+        "refresh": refresh,
+    }
+    return jwt.encode(
         payload=payload,
         key=Config.JWT_SECRET,
         algorithm=Config.JWT_ALGORITHM,
     )
 
-    return token
 
-
-def decode_token(token: str) -> dict:
+def decode_token(token: str) -> dict | None:
     try:
-        token_data = jwt.decode(
-            jwt=token, key=Config.JWT_SECRET, algorithms=[Config.JWT_ALGORITHM]
+        return jwt.decode(
+            jwt=token,
+            key=Config.JWT_SECRET,
+            algorithms=[Config.JWT_ALGORITHM],
         )
-
-        return token_data
     except ExpiredSignatureError:
         raise Exception("Token has expired")
     except jwt.PyJWTError as e:
         logging.exception(e)
         return None
+
+
+def seconds_until_expiry(token_data: dict) -> int:
+    """Returns the remaining lifetime of a token in whole seconds (min 0)."""
+    exp = token_data.get("exp", 0)
+    remaining = exp - int(datetime.now(timezone.utc).timestamp())
+    return max(remaining, 0)

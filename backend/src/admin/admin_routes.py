@@ -1,28 +1,13 @@
-from typing import Optional, Union, Annotated, List, Tuple
-from fastapi import FastAPI, Header, APIRouter, Depends, Query, Body
-from fastapi import status
-from fastapi.responses import JSONResponse
+from typing import Annotated, List
+from fastapi import APIRouter, Depends, Query, Body, status
 from fastapi.exceptions import HTTPException
 from sqlmodel.ext.asyncio.session import AsyncSession
 from .service import AdminService
 from src.auth.service import AuthService
 from src.db.main import get_session
-from datetime import datetime, timedelta
-from src.auth.dependencies import (
-    RefreshTokenBearer,
-    access_token_bearer,
-)
-from src.db.db_models import (
-    UserDataModel,
-    RegisterUserModel,
-    LoginUserModel,
-    MemberRoleEnum,
-    UserTypeEnum,
-)
-from uuid import UUID
-from src.db.models import User, PendingUser
+from src.auth.dependencies import require_admin
+from src.db.db_models import MemberRoleEnum
 from src.db.read_models import *
-
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 admin_service = AdminService()
@@ -33,45 +18,38 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 @router.get("/users", response_model=List[UserRead])
 async def get_verified_users(
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_admin,
 ):
     """
     GET /admin/users
     Lists all verified users for the admin panel.
-    NOTE: exclude self when modifying user values to avoid conflicts like accidentally demoting self
+    NOTE: exclude self when modifying user values to avoid conflicts
+    like accidentally demoting yourself.
     """
-    if not await admin_service.verify_admin(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions"
-        )
     return await admin_service.get_users(session)
 
 
 @router.get("/users/pending", response_model=List[PendingUserRead])
 async def get_pending_users(
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_admin,
 ):
     """
     GET /admin/users/pending
     Lists all pending users for the admin approval panel.
     """
-    if not await admin_service.verify_admin(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions"
-        )
     return await admin_service.get_pending_users(session)
 
 
 @router.get("/users/stats", response_model=UserStats)
-async def get_users(
+async def get_user_stats(
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_admin,
 ):
-    if not await admin_service.verify_admin(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions"
-        )
+    """
+    GET /admin/users/stats
+    Returns verified/vip/admin/pending user counts.
+    """
     return await admin_service.get_user_stats(session)
 
 
@@ -79,61 +57,53 @@ async def get_users(
 async def update_user_role(
     username: str,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_admin,
     role: MemberRoleEnum = Body(..., embed=True),
 ):
     """
-    Updates a verified user's site role
+    PATCH /admin/users/{username}/role  { role }
+    Updates a verified user's site role.
     """
-    if not await admin_service.verify_admin(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions"
-        )
-
-    # check if user_id is valid
     if not await admin_service.is_verified_user(username, session):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="user does not exist"
+            status_code=status.HTTP_404_NOT_FOUND, detail="User does not exist"
         )
 
-    # promote user else error
     res = await admin_service.update_user_role(username, role, session)
     if res is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Failed to update perms"
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to update role",
         )
 
 
 @router.post("/users/{username}/approve", response_model=UserRead)
 async def approve_pending_user(
-    username: str, session: SessionDependency, token_details: dict = access_token_bearer
+    username: str,
+    session: SessionDependency,
+    token_details: dict = require_admin,
 ):
     """
-    Admin grants access to the website to a pending user
-    NOTE: Copies pending_user entry to user table and then deletes the pending_user entry
+    POST /admin/users/{username}/approve
+    Moves a pending user to the verified user table.
     """
-    if not await admin_service.verify_admin(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions"
-        )
-
     if await admin_service.is_verified_user(username, session):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Failed to update perms. User is already verified",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already verified",
         )
 
-    new_user = None
     try:
         new_user = await admin_service.approve_pending_user(username, session)
-    except Exception as e:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Failed to delete unverified user",
+            detail="Failed to approve user",
         )
+
     if new_user is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="Failed to update perms"
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pending user not found"
         )
 
     return new_user
@@ -141,33 +111,30 @@ async def approve_pending_user(
 
 @router.post("/users/{username}/reject", response_model=RejectedUserRead)
 async def reject_pending_user(
-    username: str, session: SessionDependency, token_details: dict = access_token_bearer
+    username: str,
+    session: SessionDependency,
+    token_details: dict = require_admin,
 ):
     """
-    Admin rejects access to the website to a pending user
-    NOTE: Copies pending_user entry to rejected user and deletes pending_user
+    POST /admin/users/{username}/reject
+    Copies the pending user to rejected_user and removes the pending entry.
     """
-    if not await admin_service.verify_admin(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Insufficient permissions"
-        )
-
     if await admin_service.is_verified_user(username, session):
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Failed to update perms. User is already verified",
+            status_code=status.HTTP_409_CONFLICT,
+            detail="User is already verified",
         )
 
-    if not approve:
-        try:
-            rejected = await admin_service.reject_pending_user(username, session)
-        except Exception:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to reject user"
-            )
+    try:
+        rejected = await admin_service.reject_pending_user(username, session)
+    except Exception:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail="Failed to reject user"
+        )
 
-        if rejected is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Pending user not found"
-            )
-        return rejected
+    if rejected is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Pending user not found"
+        )
+
+    return rejected

@@ -1,27 +1,25 @@
 from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, Body, status
 from sqlmodel.ext.asyncio.session import AsyncSession
-from sqlmodel import Session, select, func
-from typing import Optional, Annotated
-from datetime import datetime
+from typing import Annotated
 from .service import ForumService
 from src.db.read_models import *
 from src.admin.service import AdminService
-from src.db.models import User
-from src.auth.dependencies import access_token_bearer
-from src.auth.service import AuthService
 from src.db.main import get_session
+from src.auth.dependencies import require_user
 
-router = APIRouter(prefix="/forum", tags=["forum"], dependencies=[access_token_bearer])
+router = APIRouter(prefix="/forum", tags=["forum"])
 service = ForumService()
-auth_service = AuthService()
 admin_service = AdminService()
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
 
 # TOPIC GROUPS
 @router.get("/groups", response_model=list[TopicGroupRead])
-async def list_topic_groups(session: SessionDependency):
+async def list_topic_groups(
+    session: SessionDependency,
+    token_details: dict = require_user,
+):
     """
     GET /forum/groups
     Returns all topic groups ordered by display_order.
@@ -32,7 +30,10 @@ async def list_topic_groups(session: SessionDependency):
 
 # TOPICS
 @router.get("/topics", response_model=list[TopicRead])
-async def list_topics(session: SessionDependency):
+async def list_topics(
+    session: SessionDependency,
+    token_details: dict = require_user,
+):
     """
     GET /forum/topics
     Returns all topics with thread/reply counts
@@ -47,18 +48,13 @@ async def list_topic_threads(
     topic_id: UUID,
     session: SessionDependency,
     page: int = Query(1, ge=1),
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     GET /forum/topics/{topic_id}/threads?page=1
     Paginated thread listing ordered by last_activity_at desc.
-    Pinned (non-expired) threads are prioritized first
+    Pinned (non-expired) threads are prioritized first.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     page_size = 15
 
     topic = await service.get_topic(topic_id, session)
@@ -72,19 +68,14 @@ async def list_topic_threads(
 async def get_thread_info(
     thread_id: UUID,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     GET /forum/threads/{thread_id}
     Returns full thread detail with author_username resolved.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     thread = await service.get_thread(
-        thread_id, token_details["user"]["user_id"], session
+        thread_id, UUID(token_details["user"]["user_id"]), session
     )
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
@@ -100,17 +91,12 @@ async def create_thread(
     topic_id: UUID,
     payload: ThreadCreate,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     POST /forum/topics/{topic_id}/threads
     Creates a new thread. Returns the created thread with author_username.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     topic = await service.get_topic(topic_id, session)
     if not topic:
         raise HTTPException(status_code=404, detail="Topic not found")
@@ -126,25 +112,22 @@ async def update_thread(
     thread_id: UUID,
     payload: ThreadUpdate,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     PATCH /forum/threads/{thread_id}
     Author or admin can edit body/title.
     Only admins may change is_pinned / pin_expires_at / is_locked.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
 
     user_id = UUID(token_details["user"]["user_id"])
     is_author = thread.author_id == user_id
-    is_admin = await admin_service.verify_admin(token_details, session)
+    is_admin = await admin_service.is_user_admin(
+        token_details["user"]["username"], session
+    )
 
     if not is_author and not is_admin:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -158,33 +141,28 @@ async def update_thread(
             status_code=403, detail="Only moderators can pin or lock threads"
         )
 
-    return await service.update_thread(
-        thread, user_id, payload, session
-    )
+    return await service.update_thread(thread, user_id, payload, session)
 
 
 @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_thread(
     thread_id: UUID,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     DELETE /forum/threads/{thread_id}
     Soft-delete. Author or admin only.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
 
     user_id = UUID(token_details["user"]["user_id"])
     is_author = thread.author_id == user_id
-    is_admin = await admin_service.verify_admin(token_details, session)
+    is_admin = await admin_service.is_user_admin(
+        token_details["user"]["username"], session
+    )
 
     if not is_author and not is_admin:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -198,23 +176,20 @@ async def vote_thread(
     thread_id: UUID,
     payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     POST /forum/threads/{thread_id}/vote  { is_upvote: bool }
     Cast or toggle a vote on a thread.
     Sending the same vote twice removes it. Returns updated counts + resulting vote state.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    return await service.vote_thread(thread, UUID(token_details["user"]["user_id"]), payload.is_upvote, session)
+    return await service.vote_thread(
+        thread, UUID(token_details["user"]["user_id"]), payload.is_upvote, session
+    )
 
 
 # REPLIES
@@ -223,7 +198,7 @@ async def list_replies(
     thread_id: UUID,
     session: SessionDependency,
     page: int = Query(1, ge=1),
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     GET /forum/threads/{thread_id}/replies?page=1
@@ -231,11 +206,6 @@ async def list_replies(
     reply_number reflects the 1-based creation rank across the full thread.
     user_vote is populated for the requesting user.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     page_size: int = 15
 
     thread = await service.get_thread_orm(thread_id, session)
@@ -251,6 +221,7 @@ async def list_replies(
 async def get_reply_parent(
     reply_id: UUID,
     session: SessionDependency,
+    token_details: dict = require_user,
 ):
     """
     GET /forum/replies/{reply_id}/parent
@@ -273,18 +244,13 @@ async def create_reply(
     thread_id: UUID,
     payload: ReplyCreate,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     POST /forum/threads/{thread_id}/replies  { body, parent_reply_id? }
     Creates a reply (or a nested reply if parent_reply_id is provided).
     Validates that parent_reply belongs to the same thread.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
@@ -305,17 +271,12 @@ async def update_reply(
     reply_id: UUID,
     payload: ReplyUpdate,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     PATCH /forum/replies/{reply_id}  { body }
     Author-only. Only the body is editable; updated_at is stamped automatically.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
         raise HTTPException(status_code=404, detail="Reply not found")
@@ -331,25 +292,22 @@ async def update_reply(
 async def delete_reply(
     reply_id: UUID,
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     DELETE /forum/replies/{reply_id}
     Soft-delete. Keeps the row so nested replies retain their parent reference.
     Author or admin only.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
         raise HTTPException(status_code=404, detail="Reply not found")
 
     user_id = UUID(token_details["user"]["user_id"])
     is_author = reply.author_id == user_id
-    is_admin = await admin_service.verify_admin(token_details, session)
+    is_admin = await admin_service.is_user_admin(
+        token_details["user"]["username"], session
+    )
 
     if not is_author and not is_admin:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -363,18 +321,13 @@ async def vote_reply(
     reply_id: UUID,
     payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
-    token_details: dict = access_token_bearer,
+    token_details: dict = require_user,
 ):
     """
     POST /forum/replies/{reply_id}/vote  { is_upvote: bool }
     Same toggle/flip logic as thread votes.
     Returns updated counts + resulting vote state.
     """
-    if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
-        )
-
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
         raise HTTPException(status_code=404, detail="Reply not found")
