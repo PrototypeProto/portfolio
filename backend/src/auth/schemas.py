@@ -13,4 +13,4 @@ class AccessTokenUserData(BaseModel):
     user_id: str
     username: str
     role: MemberRoleEnum
-    nickname: str
+    nickname: Optional[str]

@@ -14,7 +14,6 @@ from .dependencies import (
     get_current_user_by_username
 )
 from src.db.tokens_redis import add_jti_to_blocklist
-from src.db.roles_redis import *
 from src.db.db_models import (
     UserDataModel,
     RegisterUserModel,
@@ -78,14 +77,14 @@ async def login_user(
 
     user = await auth_service.get_user_with_username(login_data.username, session)
     if user is None:
-        user1 = await auth_service.get_pending_user_with_username(
-            login_data.username, session
-        )
-        if user1 is not None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Account is currently pending approval, try again later...",
-            )
+        # user1 = await auth_service.get_pending_user_with_username(
+        #     login_data.username, session
+        # )
+        # if user1 is not None:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_401_UNAUTHORIZED,
+        #         detail="Account is currently pending approval, try again later...",
+            # )
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

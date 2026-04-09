@@ -12,7 +12,6 @@ from src.auth.dependencies import (
     RefreshTokenBearer,
     access_token_bearer,
 )
-from src.db.roles_redis import set_user_role, get_user_role
 from src.db.db_models import (
     UserDataModel,
     RegisterUserModel,

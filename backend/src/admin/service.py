@@ -9,7 +9,6 @@ from uuid import UUID
 from typing import List, Tuple
 from src.db.db_models import MemberRoleEnum, VerifyUserModel
 from src.db.models import PendingUser
-from src.db.roles_redis import set_user_role, get_user_role
 from src.db.users_redis import add_registered_user, get_user, remove_user
 from src.auth.service import AuthService
 from src.db.read_models import *
@@ -194,7 +193,7 @@ class AdminService:
         if not username:
             return False
 
-        role = await get_user_role(username)
+        role = await get_user(username)
         if role == MemberRoleEnum.ADMIN:
             return True
 
@@ -202,7 +201,7 @@ class AdminService:
             query = select(User.role).where(User.username == username)
             res = await session.exec(query)
             role = res.first()
-            await set_user_role(username, role)  # update redis value
+            await add_registered_user(username, role)  # update redis value
             return role == MemberRoleEnum.ADMIN
 
     async def verify_admin(self, token_details: dict, session: AsyncSession) -> bool:
