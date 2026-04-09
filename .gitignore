@@ -86,3 +86,4 @@ backend/src/forum/unused_services.py
 backend/logs/tempfs/*
 backend/tempfs_storage/*
 backend/shared_media/*
+other.md
