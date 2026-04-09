@@ -7,6 +7,7 @@ JTI_EXPIRY = 3600
 redis_token_blocklist = redis.Redis(
     host=Config.REDIS_HOST,
     port=Config.REDIS_PORT,
+    password=Config.REDIS_PASSWORD,
     db=0
 )
 

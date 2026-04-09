@@ -18,6 +18,7 @@ auth_service = AuthService()
 admin_service = AdminService()
 SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 
+
 # TOPIC GROUPS
 @router.get("/groups", response_model=list[TopicGroupRead])
 async def list_topic_groups(session: SessionDependency):
@@ -31,33 +32,33 @@ async def list_topic_groups(session: SessionDependency):
 
 # TOPICS
 @router.get("/topics", response_model=list[TopicRead])
-async def list_topics(
-    session: SessionDependency,
-    group_id: Optional[UUID] = Query(None),
-):
+async def list_topics(session: SessionDependency):
     """
-    GET /forum/topics?group_id=<uuid>  (group_id optional)
-    Returns all topics (optionally filtered by group) with thread/reply counts
-    and last-activity info for the forum index sidebar.
-    Prefer fetching without group_id to avoid N calls on the index page.
+    GET /forum/topics
+    Returns all topics with thread/reply counts
+        and last-activity info for the forum index sidebar.
     """
-    return await service.retrieve_topics(group_id, session)
+    return await service.retrieve_topics(session)
 
 
 # THREADS
 @router.get("/topics/{topic_id}/threads", response_model=PaginatedThreads)
-async def list_threads(
+async def list_topic_threads(
     topic_id: UUID,
     session: SessionDependency,
     page: int = Query(1, ge=1),
+    token_details: dict = access_token_bearer,
 ):
     """
     GET /forum/topics/{topic_id}/threads?page=1
     Paginated thread listing ordered by last_activity_at desc.
-    Pinned (non-expired) threads float to the top on page 1 only.
-    page 1 → page_size 14
-    page 2+ → page_size 15
+    Pinned (non-expired) threads are prioritized first
     """
+    if not await auth_service.is_valid_user_token(token_details, session):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
+
     page_size = 15
 
     topic = await service.get_topic(topic_id, session)
@@ -67,13 +68,24 @@ async def list_threads(
     return await service.get_threads(topic_id, page, page_size, session)
 
 
-@router.get("/threads/{thread_id}", response_model=ThreadRead)
-async def get_thread(thread_id: UUID, session: SessionDependency):
+@router.get("/threads/{thread_id}", response_model=ThreadWithVote)
+async def get_thread_info(
+    thread_id: UUID,
+    session: SessionDependency,
+    token_details: dict = access_token_bearer,
+):
     """
     GET /forum/threads/{thread_id}
     Returns full thread detail with author_username resolved.
     """
-    thread = await service.get_thread(thread_id, session)
+    if not await auth_service.is_valid_user_token(token_details, session):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
+
+    thread = await service.get_thread(
+        thread_id, token_details["user"]["user_id"], session
+    )
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
     return thread
@@ -95,7 +107,9 @@ async def create_thread(
     Creates a new thread. Returns the created thread with author_username.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     topic = await service.get_topic(topic_id, session)
     if not topic:
@@ -120,7 +134,9 @@ async def update_thread(
     Only admins may change is_pinned / pin_expires_at / is_locked.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
@@ -134,10 +150,17 @@ async def update_thread(
         raise HTTPException(status_code=403, detail="Forbidden")
 
     mod_only_fields = {"is_pinned", "pin_expires_at", "is_locked"}
-    if any(f in payload.model_dump(exclude_unset=True) for f in mod_only_fields) and not is_admin:
-        raise HTTPException(status_code=403, detail="Only moderators can pin or lock threads")
+    if (
+        any(f in payload.model_dump(exclude_unset=True) for f in mod_only_fields)
+        and not is_admin
+    ):
+        raise HTTPException(
+            status_code=403, detail="Only moderators can pin or lock threads"
+        )
 
-    return await service.update_thread(thread, payload, session)
+    return await service.update_thread(
+        thread, user_id, payload, session
+    )
 
 
 @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -151,7 +174,9 @@ async def delete_thread(
     Soft-delete. Author or admin only.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
@@ -181,14 +206,15 @@ async def vote_thread(
     Sending the same vote twice removes it. Returns updated counts + resulting vote state.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    user_id = UUID(token_details["user"]["user_id"])
-    return await service.vote_thread(thread, user_id, payload.is_upvote, session)
+    return await service.vote_thread(thread, UUID(token_details["user"]["user_id"]), payload.is_upvote, session)
 
 
 # REPLIES
@@ -206,7 +232,9 @@ async def list_replies(
     user_vote is populated for the requesting user.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     page_size: int = 15
 
@@ -214,7 +242,9 @@ async def list_replies(
     if not thread or thread.is_deleted:
         raise HTTPException(status_code=404, detail="Thread not found")
 
-    return await service.get_replies(thread_id, page, page_size, token_details['user']['user_id'], session)
+    return await service.get_replies(
+        thread_id, page, page_size, token_details["user"]["user_id"], session
+    )
 
 
 @router.get("/replies/{reply_id}/parent", response_model=ReplyRead)
@@ -251,7 +281,9 @@ async def create_reply(
     Validates that parent_reply belongs to the same thread.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
@@ -280,7 +312,9 @@ async def update_reply(
     Author-only. Only the body is editable; updated_at is stamped automatically.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
@@ -305,7 +339,9 @@ async def delete_reply(
     Author or admin only.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:
@@ -335,7 +371,9 @@ async def vote_reply(
     Returns updated counts + resulting vote state.
     """
     if not await auth_service.is_valid_user_token(token_details, session):
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid permissions"
+        )
 
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:

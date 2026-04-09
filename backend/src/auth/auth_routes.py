@@ -14,7 +14,6 @@ from .dependencies import (
     get_current_user_by_username
 )
 from src.db.tokens_redis import add_jti_to_blocklist
-from src.db.roles_redis import *
 from src.db.db_models import (
     UserDataModel,
     RegisterUserModel,
@@ -24,6 +23,7 @@ from src.db.db_models import (
 from .schemas import AccessTokenUserData, LoginResultEnum
 from uuid import UUID
 from src.db.models import User, PendingUser
+from src.db.users_redis import get_user, add_registered_user, remove_user
 
 
 REFRESH_TOKEN_EXPIRY_DAYS = 2
@@ -75,16 +75,16 @@ async def login_user(
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
 
-    user = await auth_service.get_username_from_user_table(login_data.username, session)
+    user = await auth_service.get_user_with_username(login_data.username, session)
     if user is None:
-        user1 = await auth_service.get_username_from_user_pending_table(
-            login_data.username, session
-        )
-        if user1 is not None:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Account is currently pending approval, try again later...",
-            )
+        # user1 = await auth_service.get_pending_user_with_username(
+        #     login_data.username, session
+        # )
+        # if user1 is not None:
+        #     raise HTTPException(
+        #         status_code=status.HTTP_401_UNAUTHORIZED,
+        #         detail="Account is currently pending approval, try again later...",
+            # )
 
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -101,7 +101,11 @@ async def login_user(
     if verify_passwd(login_data.password, user.password_hash):
         access_token, refresh_token = auth_service.generate_tokens(data_dict)
         if access_token is not None and refresh_token is not None:
-            # NOTE: Maybe do a redis check here
+            # Ensure user is cached in mem
+            exists = await get_user(user.username)
+            if not exists:
+                await add_registered_user(user.username, user.role)
+
             response.set_cookie(
                 key="access_token",
                 value=access_token,
@@ -128,7 +132,7 @@ async def login_user(
     )
 
 
-@router.get("/refresh_token")
+@router.post("/refresh_token")
 async def get_new_access_token(token_details: dict = Depends(RefreshTokenBearer())):
     expiry_timestamp = token_details["exp"]
 
@@ -147,7 +151,7 @@ async def get_current_user(user=Depends(get_current_user_by_username)):
     return user
 
 
-@router.get("/logout")
+@router.post("/logout")
 async def revoke_token(token_details: dict = access_token_bearer):
     if token_details is None:
         raise HTTPException(

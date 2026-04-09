@@ -27,7 +27,7 @@ class ForumService:
         return result.all()
 
     async def retrieve_topics(
-        self, group_id: Optional[UUID], session: AsyncSession
+        self, session: AsyncSession
     ) -> list[TopicRead]:
         """
         Returns all topics with last_poster_username resolved.
@@ -70,9 +70,6 @@ class ForumService:
             .order_by(Topic.group_id, Topic.display_order)
         )
 
-        if group_id:
-            query = query.where(Topic.group_id == group_id)
-
         rows = (await session.exec(query)).all()
 
         return [
@@ -107,11 +104,10 @@ class ForumService:
         Returns a paginated list of ThreadListItem with author_username and
         last_reply_username resolved via JOINs.
 
-        Pinned threads (non-expired) are always surfaced on page 1 only.
+        Pinned threads (non-expired) are prioritized first.
         The `last_reply_username` is pulled from the reply referenced by
         Thread.last_activity (last_reply_id FK).
         """
-        # sort: str,
         AuthorUser = aliased(User)
         LastReplyAuthor = aliased(User)
  
@@ -127,13 +123,6 @@ class ForumService:
         )
         total = count_result.one()
  
-        # Sort order: pinned first (page 1 only handled at route level),
-        # then by the chosen sort within the page
-        # if sort == "top":
-        #     sort_cols = [Thread.is_pinned.desc(), Thread.upvote_count.desc()]
-        # elif sort == "oldest":
-        #     sort_cols = [Thread.is_pinned.desc(), Thread.created_at.asc()]
-        # else:  # latest / default
         sort_cols = [Thread.is_pinned.desc(), Thread.last_activity_at.desc().nulls_last()]
  
         rows = (await session.exec(
@@ -184,9 +173,10 @@ class ForumService:
             pages=ceil(total / page_size) if total else 1,
         )
 
-    async def get_thread(self, thread_id: UUID, session: AsyncSession) -> Optional[ThreadRead]:
+    async def get_thread(self, thread_id: UUID, user_id: UUID, session: AsyncSession) -> Optional[ThreadWithVote]:
         """
         Fetches a single thread with author_username resolved via JOIN.
+        LEFT JOINs ThreadVote for the requesting user so user_vote is populated.
         Returns a ThreadRead (not a raw Thread ORM object).
         """
         row = (await session.exec(
@@ -206,15 +196,20 @@ class ForumService:
                 Thread.upvote_count,
                 Thread.downvote_count,
                 Thread.last_activity_at,
+                ThreadVote.is_upvote.label("user_vote"),
             )
             .join(User, User.user_id == Thread.author_id)
+            .outerjoin(
+                ThreadVote,
+                (ThreadVote.thread_id == Thread.thread_id) & (ThreadVote.user_id == user_id),
+            )
             .where(Thread.thread_id == thread_id)
         )).first()
-
+ 
         if not row:
             return None
-
-        return ThreadRead(
+ 
+        return ThreadWithVote(
             thread_id=row.thread_id,
             topic_id=row.topic_id,
             author_id=row.author_id,
@@ -230,6 +225,7 @@ class ForumService:
             upvote_count=row.upvote_count,
             downvote_count=row.downvote_count,
             last_activity_at=row.last_activity_at,
+            user_vote=row.user_vote,
         )
 
     async def get_thread_orm(self, thread_id: UUID, session: AsyncSession) -> Optional[Thread]:
@@ -248,17 +244,17 @@ class ForumService:
         await session.commit()
         await session.refresh(thread)
         # Re-fetch with JOIN to get author_username
-        return await self.get_thread(thread.thread_id, session)
+        return await self.get_thread(thread.thread_id, author_id, session)
 
     async def update_thread(
-        self, thread: Thread, payload: ThreadUpdate, session: AsyncSession
+        self, thread: Thread, user_id: UUID, payload: ThreadUpdate, session: AsyncSession
     ) -> ThreadRead:
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(thread, field, value)
         thread.updated_at = datetime.utcnow()
         await session.commit()
         await session.refresh(thread)
-        return await self.get_thread(thread.thread_id, session)
+        return await self.get_thread(thread.thread_id, user_id, session)
 
     async def delete_thread(self, thread: Thread, session: AsyncSession) -> None:
         thread.is_deleted = True

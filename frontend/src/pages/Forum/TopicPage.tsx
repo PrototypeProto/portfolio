@@ -1,7 +1,10 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { Navbar } from "../../components/Navbar";
 import ThreadCard from "../../components/forum/ThreadCard";
+import NewThreadForm from "../../components/forum/NewThreadForm";
 import { useTopicThreads } from "../../hooks/useTopicThreads";
+import type { ThreadRead } from "../../types/forumTypes";
 import "./TopicPage.css";
 
 function PageNav({
@@ -17,7 +20,8 @@ function PageNav({
 
   const range: (number | "...")[] = [];
   const add = new Set<number>();
-  for (let i = Math.max(1, page - 2); i <= Math.min(pages, page + 2); i++) add.add(i);
+  for (let i = Math.max(1, page - 2); i <= Math.min(pages, page + 2); i++)
+    add.add(i);
   add.add(pages);
 
   let prev: number | null = null;
@@ -38,7 +42,9 @@ function PageNav({
 
       {range.map((item, i) =>
         item === "..." ? (
-          <span key={`ellipsis-${i}`} className="page-ellipsis">…</span>
+          <span key={`ellipsis-${i}`} className="page-ellipsis">
+            …
+          </span>
         ) : (
           <button
             key={item}
@@ -65,6 +71,12 @@ export default function TopicPage() {
   const navigate = useNavigate();
   const { topic, threads, page, pages, total, loading, error, goToPage } =
     useTopicThreads(topicName ?? "");
+  const [showForm, setShowForm] = useState(false);
+
+  function handleCreated(thread: ThreadRead) {
+    setShowForm(false);
+    navigate(`/thread/${thread.thread_id}`);
+  }
 
   return (
     <>
@@ -84,7 +96,11 @@ export default function TopicPage() {
           <div className="topic-header">
             <div className="topic-header-left">
               {topic.icon_url && (
-                <img src={topic.icon_url} alt="" className="topic-header-icon" />
+                <img
+                  src={topic.icon_url}
+                  alt=""
+                  className="topic-header-icon"
+                />
               )}
               <div>
                 <h1 className="topic-header-title">{topic.name}</h1>
@@ -94,9 +110,19 @@ export default function TopicPage() {
               </div>
             </div>
             <div className="topic-header-meta">
-              <span>{total} thread{total !== 1 ? "s" : ""}</span>
+              <span>
+                {total} thread{total !== 1 ? "s" : ""}
+              </span>
               {topic.is_locked && (
                 <span className="topic-locked-badge">locked</span>
+              )}
+              {!topic.is_locked && (
+                <button
+                  className="topic-new-thread-btn"
+                  onClick={() => setShowForm(true)}
+                >
+                  + New Thread
+                </button>
               )}
             </div>
           </div>
@@ -110,7 +136,9 @@ export default function TopicPage() {
           <>
             <div className="topic-thread-list">
               {threads.length === 0 ? (
-                <p className="topic-empty">No threads yet. Be the first to post.</p>
+                <p className="topic-empty">
+                  No threads yet. Be the first to post.
+                </p>
               ) : (
                 threads.map((thread) => (
                   <ThreadCard key={thread.thread_id} thread={thread} />
@@ -124,6 +152,14 @@ export default function TopicPage() {
           </>
         )}
       </div>
+
+      {showForm && topic && (
+        <NewThreadForm
+          topicId={topic.topic_id}
+          onCreated={handleCreated}
+          onCancel={() => setShowForm(false)}
+        />
+      )}
     </>
   );
 }

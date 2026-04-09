@@ -5,8 +5,9 @@ from src.auth.auth_routes import router as auth_router
 from src.admin.admin_routes import router as admin_router
 from src.media.media_routes import router as media_router
 from src.forum.forum_routes import router as forum_router 
+from src.tempfs.tempfs_routes import router as tempfs_router
+from src.tempfs.scheduler import start_scheduler, stop_scheduler
 from src.config import Config
-
 from contextlib import asynccontextmanager
 
 
@@ -14,7 +15,9 @@ from contextlib import asynccontextmanager
 async def life_span(app: FastAPI):
     print("Server is starting...")
     # Using Alembic instead to manage DB updates
+    start_scheduler()
     yield
+    stop_scheduler()
     print("Server has been stopped...")
 
 
@@ -42,5 +45,6 @@ app.include_router(router=auth_router)
 app.include_router(router=admin_router)
 app.include_router(router=media_router)
 app.include_router(router=forum_router)
+app.include_router(router=tempfs_router)
 # app.include_router(router=product_router, prefix="/products")
 # app.include_router(router=member_router, prefix="/member")

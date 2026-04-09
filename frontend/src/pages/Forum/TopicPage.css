@@ -103,6 +103,22 @@
   letter-spacing: 0.05em;
 }
 
+.topic-new-thread-btn {
+  padding: 0.4rem 0.9rem;
+  border-radius: 8px;
+  border: none;
+  background: #6366f1;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.topic-new-thread-btn:hover {
+  background: #4f46e5;
+}
+
 /* --- Thread list ------------------------------------------ */
 
 .topic-thread-list {
@@ -145,7 +161,9 @@
   font-size: 0.85rem;
   cursor: pointer;
   color: #374151;
-  transition: background 0.15s ease, border-color 0.15s ease;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
 }
 
 .page-btn:hover:not(:disabled) {
@@ -177,13 +195,26 @@
 
 /* --- State messages --------------------------------------- */
 
-.topic-error  { color: #dc2626; font-size: 0.9rem; }
-.topic-loading { color: #6b7280; font-size: 0.9rem; }
+.topic-error {
+  color: #dc2626;
+  font-size: 0.9rem;
+}
+.topic-loading {
+  color: #6b7280;
+  font-size: 0.9rem;
+}
 
 /* --- Responsive ------------------------------------------- */
 
 @media (max-width: 600px) {
-  .topic-page { padding: 1.5rem 1rem 2rem; }
-  .topic-header { flex-direction: column; gap: 0.5rem; }
-  .topic-header-meta { align-items: flex-start; }
+  .topic-page {
+    padding: 1.5rem 1rem 2rem;
+  }
+  .topic-header {
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+  .topic-header-meta {
+    align-items: flex-start;
+  }
 }
