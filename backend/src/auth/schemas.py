@@ -1,7 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 from typing import Optional
 from enum import Enum
-from src.db.db_models import MemberRoleEnum
+
 
 class LoginResultEnum(Enum):
     PENDING = ("pending",)
@@ -10,7 +10,13 @@ class LoginResultEnum(Enum):
 
 
 class AccessTokenUserData(BaseModel):
+    """
+    Payload embedded in both access and refresh tokens.
+    Role is intentionally excluded — it is verified live against Redis/DB
+    on every request by RoleChecker and cross-checked for staleness.
+    The frontend should source the role from GET /auth/me, not the token.
+    """
+
     user_id: str
     username: str
-    role: MemberRoleEnum
     nickname: Optional[str]

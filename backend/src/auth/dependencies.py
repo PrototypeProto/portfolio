@@ -1,125 +1,199 @@
 from fastapi import Request, status, Depends
-from fastapi.security import HTTPBearer
-from fastapi.security.http import HTTPAuthorizationCredentials
 from fastapi.exceptions import HTTPException
-from .utils import decode_token
-from src.db.tokens_redis import token_in_blocklist
+from fastapi.openapi.models import APIKey, APIKeyIn
+from fastapi.security.base import SecurityBase
+from .utils import decode_token, seconds_until_expiry
+from src.db.redis_client import (
+    token_in_blocklist,
+    add_jti_to_blocklist,
+    get_user,
+    add_registered_user,
+)
+from src.db.db_models import MemberRoleEnum
 from src.db.main import get_session
 from sqlmodel.ext.asyncio.session import AsyncSession
-from typing import List, Any
+from sqlmodel import select
 from src.db.models import User
-from sqlmodel import select, exists
+from typing import List
 
 
-class TokenBearer(HTTPBearer):
+# ---------------------------------------------------------------------------
+# Base cookie bearer
+# ---------------------------------------------------------------------------
 
-    def __init__(self, auto_error=True):
-        super().__init__(auto_error=auto_error)
 
-    async def __call__(self, request: Request) -> HTTPAuthorizationCredentials | None:
-        token = self.get_token(request)
+class CookieTokenBearer(SecurityBase):
+    """
+    Cookie-based JWT bearer.
+
+    Inherits from SecurityBase (not HTTPBearer) so the OpenAPI schema is
+    emitted as an `apiKey / in: cookie` entry instead of a misleading
+    `http / bearer` header scheme. Swagger UI will correctly prompt for
+    a cookie value rather than an Authorization header.
+    """
+
+    def __init__(self, cookie_name: str, auto_error: bool = True):
+        self.cookie_name = cookie_name
+        self.auto_error = auto_error
+        # Tell OpenAPI exactly where the credential lives
+        self.model = APIKey(
+            **{"in": APIKeyIn.cookie},
+            name=cookie_name,
+            description=f"JWT stored in the `{cookie_name}` HttpOnly cookie",
+        )
+        self.scheme_name = self.__class__.__name__
+
+    async def __call__(self, request: Request) -> dict | None:
+        token = request.cookies.get(self.cookie_name)
 
         if not token:
             if not self.auto_error:
                 return None
             raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="No token provided"
-            )
-
-        if not self.token_valid(token):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token"
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="No authentication cookie provided",
             )
 
         token_data = decode_token(token)
+        if token_data is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token"
+            )
 
         if await token_in_blocklist(token_data["jti"]):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail={
-                    "error": "This token is invalid or has been revoked",
-                    "resolution": "Please get a new token",
+                    "error": "This token has been revoked",
+                    "resolution": "Please log in again",
                 },
             )
 
-        self.verify_token_data(token_data)
+        self._verify_token_type(token_data)
+
+        # Backward-compat cross-check: tokens issued before the role-free
+        # schema may still carry a "role" claim. If the live Redis role
+        # differs, the user's role was changed — blocklist immediately and
+        # force re-login.
+        token_role = (token_data.get("user") or {}).get("role")
+        if token_role is not None:
+            live_role = await get_user(token_data["user"]["username"])
+            if live_role is not None and live_role.value != token_role:
+                await add_jti_to_blocklist(
+                    token_data["jti"], seconds_until_expiry(token_data)
+                )
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Session invalidated due to role change. Please log in again.",
+                )
 
         return token_data
 
-    def get_token(self, request: Request) -> str | None:
-        return request.cookies.get("access_token")  # default
-
-    def token_valid(self, token: str) -> bool:
-        token_data = decode_token(token)
-        return token_data is not None
-
-    def verify_token_data(self, token_data):
-        raise NotImplementedError("Please Override this method")
+    def _verify_token_type(self, token_data: dict) -> None:
+        raise NotImplementedError
 
 
-class AccessTokenBearer(TokenBearer):
-    def verify_token_data(self, token_data: dict) -> None:
-        if token_data and token_data["refresh"]:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN, detail="Refresh token?"
-            )
+class AccessTokenBearer(CookieTokenBearer):
+    def __init__(self, auto_error: bool = True):
+        super().__init__(cookie_name="access_token", auto_error=auto_error)
 
-
-class RefreshTokenBearer(TokenBearer):
-    def get_token(self, request: Request) -> str | None:
-        return request.cookies.get("refresh_token")
-
-    def verify_token_data(self, token_data: dict) -> None:
-        if token_data and not token_data["refresh"]:
+    def _verify_token_type(self, token_data: dict) -> None:
+        if token_data.get("refresh"):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Please provide an refresh token",
+                detail="Provide an access token, not a refresh token",
             )
 
 
-async def get_current_user_by_username(
-    token_details: dict = Depends(AccessTokenBearer()),
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    user_username = token_details["user"]["username"]
-    user = await get_username_from_user_table(user_username, session)
-    return user
+class RefreshTokenBearer(CookieTokenBearer):
+    def __init__(self, auto_error: bool = True):
+        super().__init__(cookie_name="refresh_token", auto_error=auto_error)
+
+    def _verify_token_type(self, token_data: dict) -> None:
+        if not token_data.get("refresh"):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Provide a refresh token, not an access token",
+            )
 
 
-async def get_current_user_uuid(
-    token_details: dict = Depends(AccessTokenBearer()),
-    session: AsyncSession = Depends(get_session),
-) -> dict:
-    user_uuid = token_details["user"]["user_id"]
-    return await uuid_exists(user_uuid, session, True)
+# ---------------------------------------------------------------------------
+# Role checker
+# ---------------------------------------------------------------------------
 
 
-async def get_username_from_user_table(
-        username: str, session: AsyncSession
-    ) -> User:
-        statement = select(User).where(User.username == username)
-        result = await session.exec(statement)
-        return result.first()
+class RoleChecker:
+    """
+    FastAPI dependency that verifies the caller has one of the allowed roles.
 
-async def uuid_exists(
-    uuid: UUID, session: AsyncSession, search_user_else_unverified=True
-) -> bool:
-    stmt = select(exists().where(User.user_id == uuid))
-    res = await session.exec(stmt)
-    return False if res.one_or_none() is None else res.one()
+    Resolution order:
+      1. Redis cache  (no DB hit on the hot path)
+      2. PostgreSQL   (cache miss — also backfills Redis)
+
+    Injects token_details into the route so user_id / username are available
+    without a second Depends call.
+    """
+
+    def __init__(self, allowed_roles: List[MemberRoleEnum]) -> None:
+        self.allowed_roles = allowed_roles
+
+    async def __call__(
+        self,
+        token_details: dict = Depends(AccessTokenBearer()),
+        session: AsyncSession = Depends(get_session),
+    ) -> dict:
+        username = token_details.get("user", {}).get("username")
+        if not username:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="Invalid token payload"
+            )
+
+        live_role = await self._resolve_role(username, session)
+
+        if live_role is None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail="User not found"
+            )
+
+        if live_role not in self.allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Insufficient permissions",
+            )
+
+        return token_details
+
+    async def _resolve_role(
+        self, username: str, session: AsyncSession
+    ) -> MemberRoleEnum | None:
+        role = await get_user(username)
+        if role is not None:
+            return role
+
+        user: User | None = (
+            await session.exec(select(User).where(User.username == username))
+        ).first()
+        if user is None:
+            return None
+
+        await add_registered_user(user.username, user.role)
+        return user.role
 
 
-# class RoleChecker:
-#     def __init__(self, allowed_roles: List[str]) -> None:
-#         self.allowed_roles = allowed_roles
+# ---------------------------------------------------------------------------
+# Pre-built singletons
+# ---------------------------------------------------------------------------
 
-#     def __call__(self, current_user: User = Depends(get_current_user_by_username)) -> Any:
-#         if current_user.role in self.allowed_roles:
-#             return True
+#: Any verified user (user, vip, or admin)
+require_user = Depends(
+    RoleChecker([MemberRoleEnum.USER, MemberRoleEnum.VIP, MemberRoleEnum.ADMIN])
+)
 
-#         raise HTTPException(
-#             status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient user permissions to access requested resource"
-#         )
+#: VIP or admin (e.g. file upload)
+require_vip = Depends(RoleChecker([MemberRoleEnum.VIP, MemberRoleEnum.ADMIN]))
 
+#: Admin only
+require_admin = Depends(RoleChecker([MemberRoleEnum.ADMIN]))
 
+#: Raw access token — for routes that handle their own logic (e.g. logout)
 access_token_bearer = Depends(AccessTokenBearer())

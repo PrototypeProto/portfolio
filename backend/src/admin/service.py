@@ -1,6 +1,7 @@
 from src.db.models import (
     User,
     PendingUser,
+    RejectedUser,
 )
 from sqlmodel.ext.asyncio.session import AsyncSession
 from sqlmodel import select, desc, update, insert, delete, func
@@ -9,7 +10,7 @@ from uuid import UUID
 from typing import List, Tuple
 from src.db.db_models import MemberRoleEnum, VerifyUserModel
 from src.db.models import PendingUser
-from src.db.users_redis import add_registered_user, get_user, remove_user
+from src.db.redis_client import add_registered_user, get_user, remove_user
 from src.auth.service import AuthService
 from src.db.read_models import *
 
@@ -50,6 +51,10 @@ class AdminService:
         user.role = role.value
         await session.commit()
         await session.refresh(user)
+        # Overwrite Redis immediately so RoleChecker sees the new role on the
+        # very next request. The stale-token cross-check will then revoke the
+        # user's current token and force a re-login.
+        await add_registered_user(user.username, user.role)
         return user
 
     async def get_users(self, session: AsyncSession) -> List[UserRead]:
@@ -82,12 +87,7 @@ class AdminService:
         )
 
         stmt = delete(PendingUser).where(PendingUser.user_id == pending_user.user_id)
-        res = await session.exec(stmt)
-
-        if res.rowcount == 0:
-            await session.rollback()
-            raise Exception("Failed to delete user")
-
+        await session.exec(stmt)
         session.add(user)
         await session.commit()
         await session.refresh(user)
@@ -117,13 +117,7 @@ class AdminService:
             rejected_date=date.today(),
         )
 
-        stmt = delete(PendingUser).where(PendingUser.user_id == pending_user.user_id)
-        res = await session.exec(stmt)
-
-        if res.rowcount == 0:
-            await session.rollback()
-            raise Exception("Failed to delete pending user during rejection")
-
+        await session.delete(pending_user)
         session.add(rejected)
         await session.commit()
         await session.refresh(rejected)
@@ -153,7 +147,7 @@ class AdminService:
             await session.exec(select(func.count(PendingUser.user_id)))
         ).one()
 
-        stats = UserStats(unverified=pending_count)
+        stats = UserStats(pending=pending_count)
         for role, count in role_counts:
             if role == MemberRoleEnum.USER:
                 stats.user = count
@@ -187,22 +181,22 @@ class AdminService:
         return True
 
     async def is_user_admin(self, username: str, session: AsyncSession) -> bool:
-        """
-        Query redis first then db
-        """
+        """Redis-first admin check. Always returns bool (never None)."""
         if not username:
             return False
 
         role = await get_user(username)
-        if role == MemberRoleEnum.ADMIN:
-            return True
-
-        if not role:  # redis cache is empty, must fill it and query pgsql
-            query = select(User.role).where(User.username == username)
-            res = await session.exec(query)
-            role = res.first()
-            await add_registered_user(username, role)  # update redis value
+        if role is not None:
             return role == MemberRoleEnum.ADMIN
+
+        # Cache miss — go to DB and backfill
+        query = select(User.role).where(User.username == username)
+        res = await session.exec(query)
+        role = res.first()
+        if role is None:
+            return False
+        await add_registered_user(username, role)
+        return role == MemberRoleEnum.ADMIN
 
     async def verify_admin(self, token_details: dict, session: AsyncSession) -> bool:
         # check if current user is admin
