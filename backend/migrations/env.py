@@ -10,12 +10,20 @@ from sqlmodel import SQLModel
 from src.config import Config
 
 
-database_url = Config.DB_URL
+# Allow overriding the DB URL at the command line for running migrations
+# against a non-default database (e.g. the test DB):
+#   alembic -x db_url=postgresql+asyncpg://... upgrade head
+# Falls back to Config.DB_URL (from .env) if not provided.
+_x_db_url = context.get_x_argument(as_dictionary=True).get("db_url")
+database_url = _x_db_url if _x_db_url else Config.DB_URL
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
-config.set_main_option("sqlalchemy.url", database_url)
+
+# Do NOT use config.set_main_option here — storing a postgresql+asyncpg URL
+# there causes Alembic's sync internals to try to load psycopg2.
+# The async URL is passed directly to async_engine_from_config instead.
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -46,9 +54,8 @@ def run_migrations_offline() -> None:
     script output.
 
     """
-    url = config.get_main_option("sqlalchemy.url")
     context.configure(
-        url=url,
+        url=database_url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
@@ -75,6 +82,8 @@ async def run_async_migrations() -> None:
         config.get_section(config.config_ini_section, {}),
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
+        # Pass the async URL directly so Alembic never tries to load psycopg2
+        url=database_url,
     )
 
     async with connectable.connect() as connection:
