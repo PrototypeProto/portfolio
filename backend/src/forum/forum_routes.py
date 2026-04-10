@@ -7,6 +7,7 @@ from src.db.schemas import *
 from src.admin.service import AdminService
 from src.db.main import get_session
 from src.auth.dependencies import require_user
+from src.rate_limit import rate_limit
 from src.exceptions import (
     NotFoundError,
     ForbiddenError,
@@ -74,6 +75,7 @@ async def create_thread(
     payload: ThreadCreate,
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:thread:create", limit=10, window=60),
 ):
     topic = await service.get_topic(topic_id, session)
     if not topic:
@@ -143,6 +145,7 @@ async def vote_thread(
     payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:vote", limit=30, window=60),
 ):
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
@@ -191,6 +194,7 @@ async def create_reply(
     payload: ReplyCreate,
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:reply:create", limit=20, window=60),
 ):
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
@@ -252,6 +256,7 @@ async def vote_reply(
     payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:vote", limit=30, window=60),
 ):
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:

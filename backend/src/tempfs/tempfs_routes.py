@@ -2,6 +2,7 @@
 /tempfs routes
 VIP and Admin only for upload/list/storage. Download access depends on file permission setting.
 """
+
 import io
 from typing import Annotated, Optional
 from uuid import UUID
@@ -11,8 +12,14 @@ from fastapi import APIRouter, Depends, File, Form, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlmodel.ext.asyncio.session import AsyncSession
 
-from src.auth.dependencies import require_user, require_vip, access_token_bearer, AccessTokenBearer
+from src.auth.dependencies import (
+    require_user,
+    require_vip,
+    access_token_bearer,
+    AccessTokenBearer,
+)
 from src.exceptions import NotFoundError
+from src.rate_limit import rate_limit
 from src.auth.service import AuthService
 from src.admin.service import AdminService
 from src.db.enums import DownloadPermission
@@ -40,15 +47,22 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 optional_token_bearer = Depends(AccessTokenBearer(auto_error=False))
 
 
-@router.post("/upload", response_model=TempFileUploadResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/upload",
+    response_model=TempFileUploadResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 async def upload_file(
     session: SessionDependency,
     file: UploadFile = File(...),
     download_permission: DownloadPermission = Form(default=DownloadPermission.PUBLIC),
     password: Optional[str] = Form(default=None),
-    lifetime_seconds: int = Form(default=TEMPFS_DEFAULT_LIFETIME, ge=TEMPFS_MIN_LIFETIME, le=TEMPFS_MAX_LIFETIME),
+    lifetime_seconds: int = Form(
+        default=TEMPFS_DEFAULT_LIFETIME, ge=TEMPFS_MIN_LIFETIME, le=TEMPFS_MAX_LIFETIME
+    ),
     compress: bool = Form(default=True),
     token_details: dict = require_vip,
+    _rl: None = rate_limit("tempfs:upload", limit=10, window=60),
 ):
     """
     POST /tempfs/upload
@@ -63,7 +77,8 @@ async def upload_file(
     )
 
     return await service.upload(
-        file, metadata,
+        file,
+        metadata,
         token_details["user"]["user_id"],
         token_details["user"]["username"],
         session,
@@ -146,6 +161,7 @@ async def download_file(
     )
 
     if want_compressed and file.is_compressed:
+
         def _iter_raw():
             with open(file.disk_path, "rb") as f:
                 while chunk := f.read(1024 * 1024):
@@ -154,7 +170,9 @@ async def download_file(
         return StreamingResponse(
             _iter_raw(),
             media_type="application/zstd",
-            headers={"Content-Disposition": f'attachment; filename="{file.original_filename}.zst"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{file.original_filename}.zst"'
+            },
         )
 
     elif want_compressed and not file.is_compressed:
@@ -171,10 +189,13 @@ async def download_file(
         return StreamingResponse(
             _iter_compress(),
             media_type="application/zstd",
-            headers={"Content-Disposition": f'attachment; filename="{file.original_filename}.zst"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{file.original_filename}.zst"'
+            },
         )
 
     elif not want_compressed and file.is_compressed:
+
         def _iter_decompress():
             dctx = zstd.ZstdDecompressor()
             with open(file.disk_path, "rb") as f:
@@ -185,10 +206,13 @@ async def download_file(
         return StreamingResponse(
             _iter_decompress(),
             media_type=file.mime_type,
-            headers={"Content-Disposition": f'attachment; filename="{file.original_filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{file.original_filename}"'
+            },
         )
 
     else:
+
         def _iter_plain():
             with open(file.disk_path, "rb") as f:
                 while chunk := f.read(1024 * 1024):
@@ -197,7 +221,9 @@ async def download_file(
         return StreamingResponse(
             _iter_plain(),
             media_type=file.mime_type,
-            headers={"Content-Disposition": f'attachment; filename="{file.original_filename}"'},
+            headers={
+                "Content-Disposition": f'attachment; filename="{file.original_filename}"'
+            },
         )
 
 

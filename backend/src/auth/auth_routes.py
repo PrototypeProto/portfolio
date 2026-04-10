@@ -22,6 +22,7 @@ from src.db.redis_client import (
 )
 from src.db.schemas import UserRegister, UserLogin, UserData
 from .schemas import AccessTokenUserData, LoginResultEnum
+from src.rate_limit import rate_limit
 from src.exceptions import (
     AlreadyExistsError,
     InvalidCredentialsError,
@@ -41,6 +42,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 async def create_user(
     user_data: UserRegister,
     session: SessionDependency,
+    _rl: None = rate_limit("auth:signup", limit=5, window=3600),
 ) -> UserData:
     if not user_data.email:
         user_data.email = None
@@ -70,6 +72,7 @@ async def login_user(
     login_data: UserLogin,
     session: SessionDependency,
     response: Response,
+    _rl: None = rate_limit("auth:login", limit=10, window=60),
 ):
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
@@ -114,6 +117,7 @@ async def rotate_refresh_token(
     response: Response,
     token_details: dict = Depends(RefreshTokenBearer()),
     session: SessionDependency = None,
+    _rl: None = rate_limit("auth:refresh", limit=30, window=60),
 ):
     if datetime.fromtimestamp(token_details["exp"], tz=timezone.utc) <= datetime.now(
         timezone.utc
