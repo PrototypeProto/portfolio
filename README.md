@@ -32,11 +32,28 @@ Includes:
 </ul>
 
 ## TODO: Backend
-<ul>
-    <li>Custom errors & Error handling</li>
-    <li>Separate user vs server errors</li>
-    <li>Ensure safe database transactions, rolling back on failures</li>
-    <li>SSL certificates & automation</li>
+<ol>
+    <li>Security</li>
+    <li>Auth Design</li>
+    <li>Configs & Secrets</li>
+    <li>Architecture & Code Structure</li>
+        <ul>
+            <li>Separate user vs server errors</li>
+            <li>Custom errors & Error handling</li>
+            <li>Ensure safe database transactions, rolling back on failures</li>
+        </ul>
+    <li>Redis & Cachine</li>
+    <li>TempFS file upload</li>
+        <ul>
+            <li>POST /tempfs/files/{id}/unlock: to get short-lived download token</li>
+            <li> in the "compress on the fly" path, compressor.write(chunk) returns the number of bytes consumed by the internal buffer, not the compressed bytes — and yielding that integer from a generator will crash StreamingResponse.</li>
+            <li></li>
+        </ul>
+    <li>Frontend auth state</li>
+    <li>Deployment</li>
+        <ul>
+            <li>SSL certificates & automation</li>
+        </ul>
     <li>Security: </li>
         <ul>
             <li>Path traversal</li>
@@ -50,7 +67,7 @@ Includes:
     <li>DB triggers for when user changes vote: like->dis / dis->like</li>
     <li></li>
     <li></li>
-</ul>
+</ol>
 
 ## TODO: Frontend
 <ul>
@@ -63,3 +80,5 @@ Includes:
     <li></li>
     <li></li>
 </ul>
+
+# NOTES:
