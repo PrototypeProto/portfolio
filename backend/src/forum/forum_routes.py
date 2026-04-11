@@ -1,18 +1,36 @@
-from uuid import UUID
-from fastapi import APIRouter, Depends, Query, Body, status
-from sqlmodel.ext.asyncio.session import AsyncSession
 from typing import Annotated
-from .service import ForumService
-from src.db.schemas import *
+from uuid import UUID
+
+from fastapi import APIRouter, Body, Depends, Query, status
+from sqlmodel.ext.asyncio.session import AsyncSession
+
 from src.admin.service import AdminService
-from src.db.main import get_session
 from src.auth.dependencies import require_user
+from src.db.main import get_session
+from src.db.schemas import (
+    PaginatedReplies,
+    PaginatedThreads,
+    ReplyCreate,
+    ReplyRead,
+    ReplyUpdate,
+    ThreadCreate,
+    ThreadRead,
+    ThreadUpdate,
+    ThreadWithVote,
+    TopicGroupRead,
+    TopicRead,
+    VotePayload,
+    VoteResult,
+)
 from src.exceptions import (
-    NotFoundError,
+    BadRequestError,
     ForbiddenError,
     LockedError,
-    BadRequestError,
+    NotFoundError,
 )
+from src.rate_limit import rate_limit
+
+from .service import ForumService
 
 router = APIRouter(prefix="/forum", tags=["forum"])
 service = ForumService()
@@ -56,9 +74,7 @@ async def get_thread_info(
     session: SessionDependency,
     token_details: dict = require_user,
 ):
-    thread = await service.get_thread(
-        thread_id, UUID(token_details["user"]["user_id"]), session
-    )
+    thread = await service.get_thread(thread_id, UUID(token_details["user"]["user_id"]), session)
     if not thread or thread.is_deleted:
         raise NotFoundError("Thread not found")
     return thread
@@ -74,6 +90,7 @@ async def create_thread(
     payload: ThreadCreate,
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:thread:create", limit=10, window=60),
 ):
     topic = await service.get_topic(topic_id, session)
     if not topic:
@@ -98,18 +115,13 @@ async def update_thread(
 
     user_id = UUID(token_details["user"]["user_id"])
     is_author = thread.author_id == user_id
-    is_admin = await admin_service.is_user_admin(
-        token_details["user"]["username"], session
-    )
+    is_admin = await admin_service.is_user_admin(token_details["user"]["username"], session)
 
     if not is_author and not is_admin:
         raise ForbiddenError()
 
     mod_only_fields = {"is_pinned", "pin_expires_at", "is_locked"}
-    if (
-        any(f in payload.model_dump(exclude_unset=True) for f in mod_only_fields)
-        and not is_admin
-    ):
+    if any(f in payload.model_dump(exclude_unset=True) for f in mod_only_fields) and not is_admin:
         raise ForbiddenError("Only moderators can pin or lock threads")
 
     return await service.update_thread(thread, user_id, payload, session)
@@ -127,9 +139,7 @@ async def delete_thread(
 
     user_id = UUID(token_details["user"]["user_id"])
     is_author = thread.author_id == user_id
-    is_admin = await admin_service.is_user_admin(
-        token_details["user"]["username"], session
-    )
+    is_admin = await admin_service.is_user_admin(token_details["user"]["username"], session)
 
     if not is_author and not is_admin:
         raise ForbiddenError()
@@ -143,6 +153,7 @@ async def vote_thread(
     payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:vote", limit=30, window=60),
 ):
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
@@ -164,9 +175,7 @@ async def list_replies(
     if not thread or thread.is_deleted:
         raise NotFoundError("Thread not found")
 
-    return await service.get_replies(
-        thread_id, page, 15, token_details["user"]["user_id"], session
-    )
+    return await service.get_replies(thread_id, page, 15, token_details["user"]["user_id"], session)
 
 
 @router.get("/replies/{reply_id}/parent", response_model=ReplyRead)
@@ -191,6 +200,7 @@ async def create_reply(
     payload: ReplyCreate,
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:reply:create", limit=20, window=60),
 ):
     thread = await service.get_thread_orm(thread_id, session)
     if not thread or thread.is_deleted:
@@ -236,9 +246,7 @@ async def delete_reply(
 
     user_id = UUID(token_details["user"]["user_id"])
     is_author = reply.author_id == user_id
-    is_admin = await admin_service.is_user_admin(
-        token_details["user"]["username"], session
-    )
+    is_admin = await admin_service.is_user_admin(token_details["user"]["username"], session)
 
     if not is_author and not is_admin:
         raise ForbiddenError()
@@ -252,6 +260,7 @@ async def vote_reply(
     payload: Annotated[VotePayload, Body()],
     session: SessionDependency,
     token_details: dict = require_user,
+    _rl: None = rate_limit("forum:vote", limit=30, window=60),
 ):
     reply = await service.get_reply_orm(reply_id, session)
     if not reply or reply.is_deleted:

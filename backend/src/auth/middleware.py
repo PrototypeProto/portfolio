@@ -26,23 +26,25 @@ Routes excluded from rotation:
   logic and must not be intercepted.
 """
 
+import logging
+
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
 from starlette.types import ASGIApp
 
-from src.auth.utils import decode_token, seconds_until_expiry, create_access_token
+from src.config import Config
+from src.auth.utils import decode_token, seconds_until_expiry
 from src.auth.service import AuthService
-from src.auth.schemas import AccessTokenUserData
 from src.db.redis_client import (
     token_in_blocklist,
     get_refresh_token_owner,
     delete_refresh_token,
     add_jti_to_blocklist,
-    store_refresh_token,
 )
 from src.db.main import get_session_context
-from src.auth.utils import REFRESH_TOKEN_EXPIRY_SECONDS
+
+logger = logging.getLogger(__name__)
 
 # Only attempt rotation when the refresh token has at least this much life left.
 # Below this threshold the session is nearly over — let the user re-authenticate.
@@ -82,25 +84,20 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
 
         # If access token is present and valid, nothing to do
         if access_token:
-            try:
-                token_data = decode_token(access_token)
-                if token_data and not await token_in_blocklist(token_data["jti"]):
-                    # Token is valid — pass through normally
-                    return await call_next(request)
-            except Exception:
-                pass  # expired or invalid — fall through to rotation attempt
+            token_data = decode_token(access_token)
+            if token_data:
+                try:
+                    if not await token_in_blocklist(token_data["jti"]):
+                        return await call_next(request)
+                except Exception:
+                    logger.warning("Redis check failed during token validation", exc_info=True)
 
         # Access token is absent, expired, or invalid.
         # Attempt silent rotation using the refresh token.
         if not refresh_token:
             return await call_next(request)
 
-        try:
-            refresh_data = decode_token(refresh_token)
-        except Exception:
-            # Refresh token is also expired — pass through, let dep handle 401
-            return await call_next(request)
-
+        refresh_data = decode_token(refresh_token)
         if not refresh_data:
             return await call_next(request)
 
@@ -143,9 +140,7 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
 
             # Inject the new token data into request state so CookieTokenBearer
             # reads the fresh token rather than the expired cookie
-            from src.auth.utils import decode_token as _decode
-
-            new_token_data = _decode(new_access_token)
+            new_token_data = decode_token(new_access_token)
             request.state.rotated_token_data = new_token_data
 
             # Process the request with the new token in state
@@ -169,6 +164,8 @@ class TokenRefreshMiddleware(BaseHTTPMiddleware):
             return response
 
         except Exception:
-            # Rotation failed for any reason — pass through and let the
-            # normal dependency chain handle the auth failure
+            # Rotation failed for any reason — log it loudly so silent bugs
+            # like the previous Config NameError can't hide. Then pass through
+            # and let the normal dependency chain handle the auth failure.
+            logger.exception("token rotation failed")
             return await call_next(request)

@@ -2,10 +2,9 @@ from bcrypt import hashpw, checkpw, gensalt
 import jwt
 from jwt.exceptions import ExpiredSignatureError
 from src.config import Config
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, UTC
 from uuid import uuid4
 import logging
-from src.config import Config
 
 logger = logging.getLogger("portfolio.auth")
 logger.setLevel(Config.log_level)
@@ -30,7 +29,7 @@ def create_access_token(
     expiry_seconds: int = ACCESS_TOKEN_EXPIRY_SECONDS,
     refresh: bool = False,
 ) -> str:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     payload = {
         "user": user_data,
         "exp": now + timedelta(seconds=expiry_seconds),
@@ -46,6 +45,12 @@ def create_access_token(
 
 
 def decode_token(token: str) -> dict | None:
+    """
+    Decode and verify a JWT.
+
+    Returns the payload dict on success, or None if the token is expired,
+    malformed, or otherwise invalid. Never raises — callers check for None.
+    """
     try:
         return jwt.decode(
             jwt=token,
@@ -53,14 +58,15 @@ def decode_token(token: str) -> dict | None:
             algorithms=[Config.JWT_ALGORITHM],
         )
     except ExpiredSignatureError:
-        raise Exception("Token has expired")
+        logger.debug("Token expired")
+        return None
     except jwt.PyJWTError as e:
-        logger.exception("JWT decode error: %s", e)
+        logger.debug("JWT decode error: %s", e)
         return None
 
 
 def seconds_until_expiry(token_data: dict) -> int:
     """Returns the remaining lifetime of a token in whole seconds (min 0)."""
     exp = token_data.get("exp", 0)
-    remaining = exp - int(datetime.now(timezone.utc).timestamp())
+    remaining = exp - int(datetime.now(UTC).timestamp())
     return max(remaining, 0)

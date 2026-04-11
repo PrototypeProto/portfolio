@@ -7,12 +7,14 @@ Key namespaces replace separate DB numbers:
     blocklist:<jti>       Revoked access/refresh token JTIs
     refresh:<jti>         Active refresh token family  (value = username)
     user:<username>       Cached user role             (value = MemberRoleEnum.value)
+    rate:<id>:<route>     Rate limit hit counter       (value = int, TTL = window)
 
 Using namespaced keys in one DB means:
   - One connection pool, not three
   - SCAN patterns work correctly for family revocation
   - Keys are self-describing in redis-cli / monitoring
 """
+
 import redis.asyncio as redis
 from src.config import Config
 from src.db.enums import MemberRoleEnum
@@ -26,26 +28,75 @@ _client: redis.Redis = redis.Redis(
     port=Config.REDIS_PORT,
     password=Config.REDIS_PASSWORD,
     db=0,
-    decode_responses=False,   # we decode manually where needed
+    decode_responses=False,  # we decode manually where needed
 )
 
 # ---------------------------------------------------------------------------
 # Key helpers
 # ---------------------------------------------------------------------------
 
+
 def _blocklist_key(jti: str) -> str:
     return f"blocklist:{jti}"
 
+
 def _refresh_key(jti: str) -> str:
     return f"refresh:{jti}"
+
 
 def _user_key(username: str) -> str:
     return f"user:{username}"
 
 
+def _rate_key(identifier: str, route_key: str) -> str:
+    """
+    Composite rate limit key.
+    identifier — IP address (unauthenticated) or username (authenticated)
+    route_key  — short stable string identifying the endpoint, e.g. "auth:login"
+    """
+    return f"rate:{identifier}:{route_key}"
+
+
+# ---------------------------------------------------------------------------
+# Rate limiting
+# ---------------------------------------------------------------------------
+
+
+async def check_rate_limit(
+    identifier: str,
+    route_key: str,
+    limit: int,
+    window_seconds: int,
+) -> tuple[int, int]:
+    """
+    Increment the hit counter for (identifier, route_key) and return
+    (current_count, remaining).
+
+    On the first hit within a window the key is created with a TTL of
+    window_seconds so Redis cleans it up automatically.
+
+    Raises nothing — the caller decides what to do with the count.
+    """
+    key = _rate_key(identifier, route_key)
+    count = await _client.incr(key)
+    if count == 1:
+        # First hit in this window — set the expiry
+        await _client.expire(key, window_seconds)
+    remaining = max(0, limit - count)
+    return int(count), remaining
+
+
+async def get_rate_limit_ttl(identifier: str, route_key: str) -> int:
+    """Return seconds until the rate limit window resets, or 0 if no key exists."""
+    key = _rate_key(identifier, route_key)
+    ttl = await _client.ttl(key)
+    return max(0, ttl)
+
+
 # ---------------------------------------------------------------------------
 # JTI blocklist
 # ---------------------------------------------------------------------------
+
 
 async def add_jti_to_blocklist(jti: str, ttl_seconds: int) -> None:
     """
@@ -63,6 +114,7 @@ async def token_in_blocklist(jti: str) -> bool:
 # ---------------------------------------------------------------------------
 # Refresh token family store
 # ---------------------------------------------------------------------------
+
 
 async def store_refresh_token(jti: str, username: str, ttl_seconds: int) -> None:
     """Record a newly issued refresh token JTI → username mapping."""
@@ -109,6 +161,7 @@ async def revoke_all_user_refresh_tokens(username: str) -> None:
 # User role cache
 # ---------------------------------------------------------------------------
 
+
 async def add_registered_user(username: str, role: MemberRoleEnum) -> None:
     """Cache (or overwrite) a user's role. No expiry — evicted on role change."""
     await _client.set(_user_key(username), role.value)
@@ -122,7 +175,10 @@ async def get_user(username: str) -> MemberRoleEnum | None:
     try:
         return MemberRoleEnum(raw.decode())
     except ValueError:
-        raise Exception(f"Unknown role value in Redis for user '{username}': {raw}")
+        # Corrupted cache entry — evict it so the caller falls through
+        # to the DB and backfills a correct value on the next request.
+        await _client.delete(_user_key(username))
+        return None
 
 
 async def remove_user(username: str) -> None:

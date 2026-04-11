@@ -1,36 +1,42 @@
+import logging
+from datetime import UTC, datetime
 from typing import Annotated
-from src.config import Config
+
 from fastapi import APIRouter, Depends, Response, status
 from sqlmodel.ext.asyncio.session import AsyncSession
-from .service import AuthService
+
+from src.config import Config
 from src.db.main import get_session
-from .utils import verify_passwd, seconds_until_expiry
-from datetime import datetime, timezone
+from src.db.redis_client import (
+    add_jti_to_blocklist,
+    add_registered_user,
+    delete_refresh_token,
+    get_refresh_token_owner,
+    get_user,
+    revoke_all_user_refresh_tokens,
+)
+from src.db.schemas import UserData, UserLogin, UserRegister
+from src.exceptions import (
+    AlreadyExistsError,
+    InvalidCredentialsError,
+    NotFoundError,
+    RefreshTokenReuseError,
+    TokenExpiredError,
+    UnauthorizedError,
+)
+from src.rate_limit import rate_limit
+
 from .dependencies import (
     RefreshTokenBearer,
     access_token_bearer,
     require_user,
 )
-from src.db.redis_client import (
-    add_jti_to_blocklist,
-    store_refresh_token,
-    get_refresh_token_owner,
-    delete_refresh_token,
-    revoke_all_user_refresh_tokens,
-    get_user,
-    add_registered_user,
-)
-from src.db.schemas import UserRegister, UserLogin, UserData
-from .schemas import AccessTokenUserData, LoginResultEnum
-from src.exceptions import (
-    AlreadyExistsError,
-    InvalidCredentialsError,
-    NotFoundError,
-    TokenExpiredError,
-    SessionRevokedError,
-    RefreshTokenReuseError,
-    UnauthorizedError,
-)
+from .schemas import LoginResultEnum
+from .service import AuthService
+from .utils import seconds_until_expiry, verify_passwd
+
+logger = logging.getLogger(__name__)
+
 
 router = APIRouter(prefix="/auth", tags=["authentication"])
 auth_service = AuthService()
@@ -41,6 +47,7 @@ SessionDependency = Annotated[AsyncSession, Depends(get_session)]
 async def create_user(
     user_data: UserRegister,
     session: SessionDependency,
+    _rl: None = rate_limit("auth:signup", limit=5, window=3600),
 ) -> UserData:
     if not user_data.email:
         user_data.email = None
@@ -49,18 +56,13 @@ async def create_user(
     if not user_data.request:
         user_data.request = None
 
-    if (
-        await auth_service.username_exists(user_data.username, session)
-        != LoginResultEnum.DNE
-    ):
+    if await auth_service.username_exists(user_data.username, session) != LoginResultEnum.DNE:
         raise AlreadyExistsError("User with that username already exists")
 
-    if user_data.email is not None:
-        if (
-            await auth_service.email_exists(user_data.email, session)
-            != LoginResultEnum.DNE
-        ):
-            raise AlreadyExistsError("User with that email already exists")
+    if user_data.email is not None and (
+        await auth_service.email_exists(user_data.email, session) != LoginResultEnum.DNE
+    ):
+        raise AlreadyExistsError("User with that email already exists")
 
     return await auth_service.register_user(user_data, session)
 
@@ -70,6 +72,7 @@ async def login_user(
     login_data: UserLogin,
     session: SessionDependency,
     response: Response,
+    _rl: None = rate_limit("auth:login", limit=10, window=60),
 ):
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
@@ -78,8 +81,12 @@ async def login_user(
     if user is None or not verify_passwd(login_data.password, user.password_hash):
         raise InvalidCredentialsError()
 
-    if not await get_user(user.username):
-        await add_registered_user(user.username, user.role)
+    # Populate Redis role cache — non-critical, login works without it
+    try:
+        if not await get_user(user.username):
+            await add_registered_user(user.username, user.role)
+    except Exception:
+        logger.warning("Redis cache population failed during login for %s", user.username)
 
     access_token, refresh_token = await auth_service.generate_tokens(user)
 
@@ -114,10 +121,9 @@ async def rotate_refresh_token(
     response: Response,
     token_details: dict = Depends(RefreshTokenBearer()),
     session: SessionDependency = None,
+    _rl: None = rate_limit("auth:refresh", limit=30, window=60),
 ):
-    if datetime.fromtimestamp(token_details["exp"], tz=timezone.utc) <= datetime.now(
-        timezone.utc
-    ):
+    if datetime.fromtimestamp(token_details["exp"], tz=UTC) <= datetime.now(UTC):
         raise TokenExpiredError("Refresh token has expired")
 
     jti = token_details["jti"]
@@ -185,9 +191,15 @@ async def revoke_token(
     jti = token_details["jti"]
     username = token_details["user"]["username"]
 
-    ttl = seconds_until_expiry(token_details)
-    await add_jti_to_blocklist(jti, max(ttl, 1))
-    await revoke_all_user_refresh_tokens(username)
+    # Revoke tokens in Redis. If Redis is down the tokens remain valid
+    # until they expire naturally, but the cookies are still cleared
+    # client-side which is the primary logout mechanism.
+    try:
+        ttl = seconds_until_expiry(token_details)
+        await add_jti_to_blocklist(jti, max(ttl, 1))
+        await revoke_all_user_refresh_tokens(username)
+    except Exception:
+        logger.warning("Redis revocation failed during logout for %s", username)
 
     response.delete_cookie("access_token")
     response.delete_cookie("refresh_token")
