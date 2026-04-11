@@ -89,3 +89,4 @@ backend/shared_media/*
 other.md
 
 .pytest_cache
+.ruff_cache
