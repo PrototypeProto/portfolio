@@ -83,6 +83,7 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=Config.cors_allow_methods_list,
     allow_headers=Config.cors_allow_headers_list,
+    expose_headers=["Content-Disposition"],
 )
 app.add_middleware(TokenRefreshMiddleware)
 app.include_router(router=root_router)

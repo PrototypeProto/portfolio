@@ -373,7 +373,8 @@ class TestGetPublicInfo:
         uploader = await make_user(session, username="infouploader")
         record = await make_tempfile_record(session, uploader_id=uploader.user_id)
 
-        info = await tempfs_svc.get_public_info(record.file_id, session)
+        user_id = None
+        info = await tempfs_svc.get_public_info(record.file_id, user_id, session)
 
         assert info is not None
         assert info.file_id == record.file_id
@@ -384,12 +385,14 @@ class TestGetPublicInfo:
         record = await make_tempfile_record(
             session, uploader_id=uploader.user_id, expires_at=_past()
         )
+        user_id = None
 
-        info = await tempfs_svc.get_public_info(record.file_id, session)
+        info = await tempfs_svc.get_public_info(record.file_id, user_id, session)
         assert info is None
 
     async def test_returns_none_for_unknown_file(self, tempfs_svc, session: AsyncSession):
-        info = await tempfs_svc.get_public_info(uuid4(), session)
+        user_id = None
+        info = await tempfs_svc.get_public_info(uuid4(), user_id, session)
         assert info is None
 
     async def test_requires_password_flag_set_correctly(self, tempfs_svc, session: AsyncSession):
@@ -400,8 +403,9 @@ class TestGetPublicInfo:
             permission=DownloadPermission.PASSWORD,
             password_hash=generate_passwd_hash(TEST_PASSWORD_STUB),
         )
+        user_id = None
 
-        info = await tempfs_svc.get_public_info(record.file_id, session)
+        info = await tempfs_svc.get_public_info(record.file_id, user_id, session)
         assert info.requires_password is True
 
     async def test_requires_password_false_for_public(self, tempfs_svc, session: AsyncSession):
@@ -411,8 +415,9 @@ class TestGetPublicInfo:
             uploader_id=uploader.user_id,
             permission=DownloadPermission.PUBLIC,
         )
+        user_id = None
 
-        info = await tempfs_svc.get_public_info(record.file_id, session)
+        info = await tempfs_svc.get_public_info(record.file_id, user_id, session)
         assert info.requires_password is False
 
 

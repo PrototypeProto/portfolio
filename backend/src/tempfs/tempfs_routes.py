@@ -130,10 +130,22 @@ async def get_file_info(
 ):
     """
     GET /tempfs/files/{file_id}
-    Returns public metadata for the download page — no auth required for PUBLIC files.
-    Returns 404 if the file is not found or has expired.
+    Returns public metadata for the download page.
+    - PUBLIC files: no auth required
+    - SELF files: returns 404 unless the requester is the uploader
+      (consistent with the download endpoint — avoids leaking file existence)
+    - PASSWORD files: metadata is always visible so the download page can
+      show the password prompt; the password is checked on download
+    Returns 404 if the file is not found, has expired, or is inaccessible.
     """
-    info: TempFilePublicInfo = await service.get_public_info(file_id, session)
+    requester_id: UUID | None = None
+    if token_details and await auth_service.is_valid_user_token(token_details, session):
+        try:
+            requester_id = UUID(token_details["user"]["user_id"])
+        except KeyError, ValueError:
+            pass
+
+    info: TempFilePublicInfo = await service.get_public_info(file_id, requester_id, session)
     if not info:
         raise NotFoundError("File not found or forbidden access")
     return info

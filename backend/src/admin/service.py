@@ -13,7 +13,6 @@ from src.db.models import (
 from src.db.redis_client import add_registered_user, get_user
 from src.db.schemas import PendingUserRead, RejectedUserRead, UserRead, UserStats
 
-
 class AdminService:
     """
     Handles business logic for the {/admin} route

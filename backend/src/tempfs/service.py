@@ -221,6 +221,10 @@ class TempFSService:
             if file_size == 0:
                 raise BadRequestError("Empty file")
 
+            # ── Sniff MIME type while raw_path is still on disk ──
+            # Must happen before the compression block which renames/removes raw_path.
+            sniffed_mime = _sniff_mime_type(raw_path.read_bytes()[:512])
+
             # ── Quota checks (against raw size; compression may shrink it) ──
             system_bytes_used = await self._used_bytes(session)
             if system_bytes_used + file_size > TOTAL_SHARED_BYTES:
@@ -302,7 +306,7 @@ class TempFSService:
                 file_id=file_id,
                 uploader_id=uploader_id,
                 original_filename=safe_filename,
-                mime_type=_sniff_mime_type(raw_path.read_bytes()[:512]),
+                mime_type=sniffed_mime,
                 original_size=file_size,
                 stored_size=stored_size,
                 is_compressed=is_compressed,
@@ -523,16 +527,29 @@ class TempFSService:
         await session.commit()
 
     async def get_public_info(
-        self, file_id: UUID, session: AsyncSession
+        self, file_id: UUID, requester_id: UUID | None, session: AsyncSession
     ) -> TempFilePublicInfo | None:
         """
         Returns public metadata for the download page.
-        Returns None if the file doesn't exist or has expired.
+        Returns None if:
+          - the file doesn't exist or has expired
+          - the file is SELF-permission and the requester is not the uploader
+
+        Returning None (→ 404) for SELF files when the requester isn't the uploader
+        avoids leaking that the file exists at all. The download endpoint already does
+        this, and the info endpoint must be consistent — otherwise an attacker with a
+        link can confirm file existence and read the filename/size even if they can't
+        download it.
         """
         now = datetime.now(UTC)
         record = await session.get(TempFile, file_id)
         if not record or record.expires_at <= now:
             return None
+
+        # SELF files: only the uploader should know the file exists
+        if record.download_permission == DownloadPermission.SELF:
+            if requester_id is None or requester_id != record.uploader_id:
+                return None
         return TempFilePublicInfo(
             file_id=record.file_id,
             original_filename=record.original_filename,
